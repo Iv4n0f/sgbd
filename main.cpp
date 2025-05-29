@@ -20,8 +20,8 @@ int main() {
     std::cout << "Bitmap cargado desde disco.\n";
   else {
     std::cout << "Bitmap no encontrado. Inicializando...\n";
-    bitmap.set(0, true); // bloque 0 reservado para el bitmap
-    bitmap.set(1, true); // bloque 1 reservado para el catálogo
+    bitmap.set(0, true); 
+    bitmap.set(1, true);
     bitmap.save();
   }
 
@@ -30,14 +30,18 @@ int main() {
   printBitmapBits(data_inicial, 80);
 
   bitmap.set(10, false);
+  std::cout << "Estado actual de bitmap en memoria ";
+  std::cout << (bitmap.get(10)?"10 ocupado\n" : "10 libre\n");
+
+  std::cout << "Contenido del bitmap en disco (antes de save):\n";
+  data_inicial = disk.readBlock(0, 0, 0, 0, 0);
+  printBitmapBits(data_inicial, 80);
+
+  std::cout << "Contenido del bitmap en disco (despues de save):\n";
   bitmap.save();
+  data_inicial = disk.readBlock(0, 0, 0, 0, 0);
+  printBitmapBits(data_inicial, 80);
 
-  Bitmap bitmap_reloaded(disk);
-  bitmap_reloaded.load();
-
-  std::cout << "Contenido del bitmap en disco (estado final):\n";
-  auto data_final = disk.readBlock(0, 0, 0, 0, 0);
-  printBitmapBits(data_final, 80);
-
+  std::cout<< "\n";
   return 0;
 }
