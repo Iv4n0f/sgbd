@@ -1,39 +1,50 @@
 #include "bitmap.h"
+#include <cstring>
+#include <iostream>
+#include <stdexcept>
 
-BlockCoords Bitmap::indexToCoords(int block_index) const {
-  int blocks_per_sector = disk.blocks_per_sector;
-  int sectors_per_pista = disk.num_sectores;
-  int pistas_per_superficie = disk.num_pistas;
-  int superficies = disk.num_superficies;
-  int platos = disk.num_platos;
-
-  int bloques_por_sector = blocks_per_sector;
-  int bloques_por_pista = blocks_per_sector * sectors_per_pista;
-  int bloques_por_superficie = bloques_por_pista * pistas_per_superficie;
-  int bloques_por_plato = bloques_por_superficie * superficies;
-
-  BlockCoords coords;
-  coords.plato = block_index / bloques_por_plato;
-  int rem_plato = block_index % bloques_por_plato;
-
-  coords.superficie = rem_plato / bloques_por_superficie;
-  int rem_superficie = rem_plato % bloques_por_superficie;
-
-  coords.pista = rem_superficie / bloques_por_pista;
-  int rem_pista = rem_superficie % bloques_por_pista;
-
-  coords.sector = rem_pista / bloques_por_sector;
-  coords.bloque = rem_pista % bloques_por_sector;
-
-  return coords;
+Bitmap::Bitmap(Disk &disk_) : disk(disk_) {
+  total_blocks = disk.num_platos * disk.num_superficies *
+                 disk.num_pistas * disk.num_sectores *
+                 disk.blocks_per_sector;
+  bits.resize(total_blocks, false);
 }
 
-std::vector<char> readBlockLinear(int block_index, Disk& disk) {
-  BlockCoords c = Bitmap(0, disk).indexToCoords(block_index);
-  return disk.readBlock(c.plato, c.superficie, c.pista, c.sector, c.bloque);
+void Bitmap::set(int index, bool value) {
+  if (index < 0 || index >= total_blocks)
+    throw std::out_of_range("Bitmap set: índice fuera de rango");
+  bits[index] = value;
 }
 
-void writeBlockLinear(int block_index, const std::vector<char>& data, Disk& disk) {
-  BlockCoords c = Bitmap(0, disk).indexToCoords(block_index);
-  disk.writeBlock(c.plato, c.superficie, c.pista, c.sector, c.bloque, data);
+bool Bitmap::get(int index) const {
+  if (index < 0 || index >= total_blocks)
+    throw std::out_of_range("Bitmap get: índice fuera de rango");
+  return bits[index];
+}
+
+bool Bitmap::load() {
+  std::vector<char> data = disk.readBlock(0, 0, 0, 0, 0);
+  if ((int)data.size() < (total_blocks + 7) / 8) return false;
+
+  bits.assign(total_blocks, false);
+
+  for (int i = 0; i < total_blocks; ++i) {
+    bits[i] = (data[i / 8] & (1 << (i % 8))) != 0;
+  }
+
+  if (!bits[0] || !bits[1]) return false;
+
+  return true;
+}
+
+void Bitmap::save() const {
+  std::vector<char> data((total_blocks + 7) / 8, 0);
+  for (int i = 0; i < total_blocks; ++i) {
+    if (bits[i]) {
+      data[i / 8] |= (1 << (i % 8));
+    }
+  }
+  std::vector<char> block(disk.block_size, 0);
+  memcpy(block.data(), data.data(), std::min(data.size(),block.size()));
+  disk.writeBlock(0, 0, 0, 0, 0, block);
 }
