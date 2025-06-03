@@ -13,4 +13,6 @@ public:
   bool get(int index) const;
   bool load();
   void save() const;
+  int size();
+  int getFreeBlock() const;
 };

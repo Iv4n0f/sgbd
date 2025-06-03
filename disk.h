@@ -1,8 +1,15 @@
-// disk.h
 #pragma once
 
 #include <string>
 #include <vector>
+
+struct BlockPos {
+  int plato;
+  int superficie;
+  int pista;
+  int sector;
+  int bloque;
+};
 
 class Disk {
 public:
@@ -38,11 +45,15 @@ public:
   void saveConfig(const std::string &path, const DiskConfig &cfg);
   bool configChanged(const DiskConfig &a, const DiskConfig &b);
   bool directoryIsComplete();
-
   Disk(const std::string &root, const std::string &config);
   void createStructure();
+
   std::vector<char> readBlock(int plato, int superficie, int pista, int sector,
                               int bloque);
   void writeBlock(int plato, int superficie, int pista, int sector, int bloque,
                   const std::vector<char> &data);
+
+  BlockPos blockPosFromIndex(int idx);
+  std::vector<char> readBlockByIndex(int idx);
+  void writeBlockByIndex(int idx, const std::vector<char> &data);
 };

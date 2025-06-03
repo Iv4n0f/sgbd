@@ -1,4 +1,3 @@
-// disk.cpp
 #include "disk.h"
 
 #include <filesystem>
@@ -77,7 +76,6 @@ Disk::Disk(const std::string &root, const std::string &config)
     }
     disk_config = user_cfg;
 
-    // Asigno miembros antes de crear estructura
     num_platos = disk_config.platos;
     num_pistas = disk_config.pistas;
     num_sectores = disk_config.sectores;
@@ -89,7 +87,6 @@ Disk::Disk(const std::string &root, const std::string &config)
   } else {
     disk_config = internal_cfg;
 
-    // Asigno miembros antes de crear estructura
     num_platos = disk_config.platos;
     num_pistas = disk_config.pistas;
     num_sectores = disk_config.sectores;
@@ -101,7 +98,6 @@ Disk::Disk(const std::string &root, const std::string &config)
 void Disk::createStructure() {
   std::cout << "Creando estructura en " << root_path << std::endl;
 
-  // Crear directorio raíz
   if (!fs::exists(root_path)) {
     if (!fs::create_directory(root_path)) {
       throw std::runtime_error("No se pudo crear el directorio raíz: " + root_path);
@@ -144,7 +140,6 @@ void Disk::createStructure() {
               throw std::runtime_error("No se pudo crear archivo sector: " + sector_file);
             }
 
-            // Tamaño del archivo sector = número de bloques * tamaño de bloque
             std::vector<char> empty_sector(blocks_per_sector * block_size, 0);
             ofs.write(empty_sector.data(), empty_sector.size());
           }
@@ -190,4 +185,36 @@ void Disk::writeBlock(int plato, int superficie, int pista, int sector,
 
   fs_sector.seekp(bloque * block_size);
   fs_sector.write(data.data(), block_size);
+}
+
+
+BlockPos Disk::blockPosFromIndex(int idx) {
+  int bloques_por_plato = num_superficies * num_pistas * num_sectores * blocks_per_sector;
+
+  int plato = idx / bloques_por_plato;
+  idx = idx % bloques_por_plato;
+
+  int bloques_por_superficie = num_pistas * num_sectores * blocks_per_sector;
+  int superficie = idx / bloques_por_superficie;
+  idx = idx % bloques_por_superficie;
+
+  int bloques_por_pista = num_sectores * blocks_per_sector;
+  int pista = idx / bloques_por_pista;
+  idx = idx % bloques_por_pista;
+
+  int bloques_por_sector = blocks_per_sector;
+  int sector = idx / bloques_por_sector;
+  int bloque = idx % bloques_por_sector;
+
+  return {plato, superficie, pista, sector, bloque};
+}
+
+std::vector<char> Disk::readBlockByIndex(int idx) {
+  BlockPos pos = blockPosFromIndex(idx);
+  return readBlock(pos.plato, pos.superficie, pos.pista, pos.sector, pos.bloque);
+}
+
+void Disk::writeBlockByIndex(int idx, const std::vector<char> &data) {
+  BlockPos pos = blockPosFromIndex(idx);
+  writeBlock(pos.plato, pos.superficie, pos.pista, pos.sector, pos.bloque, data);
 }
