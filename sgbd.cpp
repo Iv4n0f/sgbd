@@ -20,9 +20,8 @@ static std::string trim(const std::string &s) {
 }
 
 SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
-  if (bitmap.load())
-    std::cout << "Bitmap cargado desde disco." << std::endl;
-  else {
+  if (bitmap.load()) {
+  } else {
     std::cout << "Bitmap no encontrado. Inicializando..." << std::endl;
     bitmap.set(0, true);
     bitmap.set(1, true);
@@ -94,6 +93,7 @@ void SGBD::createOrReplaceRelation(const std::string &name, bool is_fixed,
 }
 
 void SGBD::printStatus() const {
+  std::cout << std::endl;
   std::cout << "Estado del Bitmap (primeros 80 bits):" << std::endl;
   for (int i = 0; i < 80; ++i) {
     std::cout << (bitmap.get(i) ? '1' : '0');
@@ -107,7 +107,7 @@ void SGBD::printStatus() const {
 
 // suficiente para offsets de 4/8 kb
 static std::string intTo4CharStr(int n) {
-  char buf[5]; 
+  char buf[5];
   if (n >= 0 && n <= 9999) {
     snprintf(buf, sizeof(buf), "%04d", n);
   } else if (n < 0 && n >= -999) {
@@ -183,17 +183,10 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   return true;
 }
 
-bool SGBD::insert_fix(const std::string &relation_name,
-                      const std::vector<char> &record) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cerr << "La relación '" << relation_name << "' no existe" << std::endl;
-    return false;
-  }
-
-  Relation &rel = catalog.getRelation(relation_name);
+bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
   if (!rel.is_fixed) {
-    std::cerr << "La relación '" << relation_name
-              << "' no es de registros fijos" << std::endl;
+    std::cerr << "La relación '" << rel.name << "' no es de registros fijos"
+              << std::endl;
     return false;
   }
 
@@ -205,8 +198,6 @@ bool SGBD::insert_fix(const std::string &relation_name,
 
   for (int block_idx : rel.blocks) {
     if (insertRecord_fix(block_idx, record)) {
-      bitmap.save();
-      catalog.save();
       return true;
     }
   }
@@ -232,6 +223,7 @@ bool SGBD::insert_fix(const std::string &relation_name,
 }
 
 void SGBD::printRelation_fix(const std::string &relation_name) {
+  std::cout << std::endl;
   if (!catalog.hasRelation(relation_name)) {
     std::cout << "Relación no encontrada: " << relation_name << std::endl;
     return;
@@ -259,7 +251,8 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
 
   std::cout << "|";
   for (size_t i = 0; i < rel.fields.size(); ++i) {
-    std::cout << " " << std::left << std::setw(column_widths[i]) << rel.fields[i].name;
+    std::cout << " " << std::left << std::setw(column_widths[i])
+              << rel.fields[i].name;
   }
   std::cout << " |" << std::endl;
   std::cout << separator << std::endl;
@@ -301,7 +294,8 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
         for (size_t j = 0; j < rel.fields.size(); ++j) {
           const auto &f = rel.fields[j];
           std::string field_data(block.data() + offset + field_offset, f.size);
-          std::cout << " " << std::left << std::setw(column_widths[j]) << field_data;
+          std::cout << " " << std::left << std::setw(column_widths[j])
+                    << field_data;
           field_offset += f.size;
         }
         std::cout << " |" << std::endl;
@@ -382,7 +376,7 @@ void SGBD::createOrReplaceRelationFromCSV_fix(const std::string &relation_name,
       }
     }
 
-    if (!insert_fix(relation_name, record)) {
+    if (!insert(relation_name, record)) {
       std::cerr << "Error insertando registro en la relación." << std::endl;
       return;
     }
@@ -402,3 +396,50 @@ bool SGBD::deleteRelation(const std::string &name) {
   }
   return false;
 }
+
+void SGBD::printRelationSchema(const std::string &relation_name) {
+  std::cout << std::endl;
+  const Relation &rel = catalog.getRelation(relation_name);
+  size_t max_field_name_len = 0;
+  for (auto field : rel.fields) {
+    max_field_name_len = std::max(field.name.size(), max_field_name_len);
+  }
+
+  std::cout << "Nombre: " << rel.name << '\n';
+  std::cout << "Tipo: " << (rel.is_fixed ? "Fijo" : "Variable") << '\n';
+  std::cout << "Campos:\n";
+  for (const auto &field : rel.fields) {
+    std::cout << "  - " << std::left << std::setw(max_field_name_len)
+              << field.name << " (" << field.type << ", " << field.size
+              << ")\n";
+  }
+  std::cout << "Bloques asignados: ";
+  for (size_t i = 0; i < rel.blocks.size(); ++i) {
+    std::cout << rel.blocks[i];
+    if (i + 1 < rel.blocks.size())
+      std::cout << ", ";
+  }
+  std::cout << std::endl;
+  std::cout << std::endl;
+}
+
+void SGBD::printRelation(const std::string &relation_name) {
+  const Relation rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    printRelation_fix(relation_name);
+  } else {
+    // TODO: printRelation_var;
+  }
+}
+
+bool SGBD::insert(const std::string &relation_name, const std::vector<char> &record) {
+  Relation &rel = catalog.getRelation(relation_name);
+  if(rel.is_fixed) {
+    return insert_fix(rel, record);
+  } else {
+    //TODO: insert_var();
+    return false;
+  }
+}
+
+

@@ -13,15 +13,21 @@ bool Catalog::hasRelation(const std::string &name) const {
 
 const Relation &Catalog::getRelation(const std::string &name) const {
   auto it = relations.find(name);
-  if (it == relations.end())
-    throw std::runtime_error("Relación no encontrada: " + name);
+  if (it == relations.end()) {
+    std::cerr << "ERROR: relacion '" << name << "' no encontrada" << std::endl;
+    static Relation dummy;
+    return dummy;
+  }
   return it->second;
 }
 
 Relation &Catalog::getRelation(const std::string &name) {
   auto it = relations.find(name);
-  if (it == relations.end())
-    throw std::runtime_error("Relación no encontrada: " + name);
+  if (it == relations.end()) {
+    std::cerr << "ERROR: relacion '" << name << "' no encontrada" << std::endl;
+    static Relation dummy;
+    return dummy;
+  }
   return it->second;
 }
 
@@ -32,24 +38,25 @@ void Catalog::addRelation(const Relation &relation) {
   relations[relation.name] = relation;
 
   std::cout << "Nueva relación añadida...\n";
-    size_t max_field_name_len = 0;
-    for (auto field : relation.fields) {
-      max_field_name_len = std::max(field.name.size(), max_field_name_len);
-    }
+  size_t max_field_name_len = 0;
+  for (auto field : relation.fields) {
+    max_field_name_len = std::max(field.name.size(), max_field_name_len);
+  }
 
-    std::cout << "Nombre: " << relation.name << '\n';
-    std::cout << "Tipo: " << (relation.is_fixed ? "Fijo" : "Variable") << '\n';
-    std::cout << "Campos:\n";
-    for (const auto &field : relation.fields) {
-      std::cout << "  - " << std::left << std::setw(max_field_name_len) << field.name << " (" << field.type << ", "
-                << field.size << ")\n";
-    }
-    std::cout << "Bloques asignados: ";
-    for (size_t i = 0; i < relation.blocks.size(); ++i) {
-      std::cout << relation.blocks[i];
-      if (i + 1 < relation.blocks.size())
-        std::cout << ", ";
-    }
+  std::cout << "Nombre: " << relation.name << '\n';
+  std::cout << "Tipo: " << (relation.is_fixed ? "Fijo" : "Variable") << '\n';
+  std::cout << "Campos:\n";
+  for (const auto &field : relation.fields) {
+    std::cout << "  - " << std::left << std::setw(max_field_name_len)
+              << field.name << " (" << field.type << ", " << field.size
+              << ")\n";
+  }
+  std::cout << "Bloques asignados: ";
+  for (size_t i = 0; i < relation.blocks.size(); ++i) {
+    std::cout << relation.blocks[i];
+    if (i + 1 < relation.blocks.size())
+      std::cout << ", ";
+  }
   if (relation.blocks.empty())
     std::cout << "ninguno";
   std::cout << "\n";
@@ -142,8 +149,9 @@ void Catalog::print() const {
     std::cout << "Tipo: " << (rel.is_fixed ? "Fijo" : "Variable") << '\n';
     std::cout << "Campos:\n";
     for (const auto &field : rel.fields) {
-      std::cout << "  - " << std::left << std::setw(max_field_name_len) << field.name << " (" << field.type << ", "
-                << field.size << ")\n";
+      std::cout << "  - " << std::left << std::setw(max_field_name_len)
+                << field.name << " (" << field.type << ", " << field.size
+                << ")\n";
     }
     std::cout << "Bloques asignados: ";
     for (size_t i = 0; i < rel.blocks.size(); ++i) {
