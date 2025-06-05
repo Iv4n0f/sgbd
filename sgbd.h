@@ -45,4 +45,5 @@ public:
                                           const std::string &csv_path);
 
   void printRelationSchema(const std::string &relation_name);
+  void printDiskCapacityInfo();
 };

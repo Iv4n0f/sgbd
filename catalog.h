@@ -30,6 +30,7 @@ public:
   Relation &getRelation(const std::string &name);
   void removeRelation(const std::string &name);
   void print() const;
+  const std::unordered_map<std::string, Relation> &getAllRelations() const;
 
 private:
   Disk &disk;

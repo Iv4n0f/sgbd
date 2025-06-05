@@ -171,3 +171,8 @@ void Catalog::removeRelation(const std::string &name) {
     throw std::runtime_error("No se encontró la relación: " + name);
   relations.erase(it);
 }
+
+const std::unordered_map<std::string, Relation> &
+Catalog::getAllRelations() const {
+  return relations;
+}

@@ -714,3 +714,58 @@ void SGBD::insertFromShell(const std::string &relation_name,
     // insertFromShell_var(relation_name, values); // futuro
   }
 }
+
+void SGBD::printDiskCapacityInfo() {
+  int total_blocks = bitmap.size();
+  int block_size = disk.block_size;
+
+  int reserved_blocks = 2; // Bloques 0 y 1 (bitmap y catálogo)
+  int free_blocks = 0;
+  int used_blocks = 0;
+  int data_blocks = 0;
+  int bytes_used_in_data = 0;
+
+  // Contar bloques libres y usados (excluyendo reservados)
+  for (int i = reserved_blocks; i < total_blocks; ++i) {
+    if (!bitmap.get(i)) {
+      free_blocks++;
+    } else {
+      used_blocks++;
+    }
+  }
+
+  // Agregar los reservados
+  used_blocks += reserved_blocks;
+
+  // Procesar bloques con datos de relaciones
+  for (const auto &pair : catalog.getAllRelations()) {
+    const Relation &rel = pair.second;
+
+    for (int block_idx : rel.blocks) {
+      data_blocks++;
+
+      if (rel.is_fixed) {
+        std::vector<char> block = disk.readBlockByIndex(block_idx);
+        
+        int record_size = std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+        int active_records = std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+
+        bytes_used_in_data += record_size * active_records;
+      }
+    }
+  }
+
+  int total_capacity = total_blocks * block_size;
+  int free_capacity = free_blocks * block_size;
+  int used_capacity = used_blocks * block_size;
+  int data_blocks_capacity = data_blocks * block_size;
+  int sector_data_capacity = bytes_used_in_data;
+
+  std::cout << "Cantidad total de bloques: " << bitmap.size() << "\n";
+  std::cout << "Capacidad total del disco: " << total_capacity << " bytes\n";
+  std::cout << "Capacidad libre: " << free_capacity << " bytes\n";
+  std::cout << "Capacidad ocupada: " << used_capacity << " bytes\n";
+  std::cout << "Capacidad de bloques con datos (relaciones): " << data_blocks_capacity << " bytes\n";
+  std::cout << "Capacidad usada en sectores con datos (registros activos): " << sector_data_capacity << " bytes\n";
+}
+

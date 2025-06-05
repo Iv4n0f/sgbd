@@ -97,6 +97,8 @@ bool Shell::handleCommand(const std::string &line) {
     sgbd.disk.printBlockPosition(std::stoi(tokens[1]));
   } else if (cmd == "disk_info" && tokens.size() == 1) {
     sgbd.disk.printDiskInfo();
+  } else if (cmd == "disk_cap" && tokens.size() == 1) {
+    sgbd.printDiskCapacityInfo();
   } else if (cmd == "delete" && tokens.size() >= 2) {
     if (tokens.size() == 2)
       sgbd.deleteRelation(tokens[1]);
