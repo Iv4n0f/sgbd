@@ -924,6 +924,135 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
   }
 }
 
+void SGBD::selectWhere_var(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value, const std::string &op,
+                           const std::string &output_name) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &input_rel = catalog.getRelation(relation_name);
+  if (input_rel.is_fixed) {
+    std::cout << "La relación es de tamaño fijo. Llamar a selectWhere_fix()."
+              << std::endl;
+    return;
+  }
+
+  int field_idx = -1;
+  for (size_t i = 0; i < input_rel.fields.size(); ++i) {
+    if (input_rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+  }
+
+  if (field_idx == -1) {
+    std::cout << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  createOrReplaceRelation(output_name, false, input_rel.fields);
+  const std::string &field_type = input_rel.fields[field_idx].type;
+
+  for (int block_idx : input_rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+    int total_records =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
+
+    for (int i = 0; i < total_records; ++i) {
+      int entry_offset = 8 + i * 8;
+
+      int reg_offset = std::stoi(std::string(block.begin() + entry_offset,
+                                             block.begin() + entry_offset + 4));
+      int reg_size = std::stoi(std::string(block.begin() + entry_offset + 4,
+                                           block.begin() + entry_offset + 8));
+
+      if (reg_offset == -1)
+        continue; // Registro eliminado
+
+      int reg_start = reg_offset;
+
+      std::vector<std::pair<int, int>> campo_offsets;
+      for (size_t j = 0; j < input_rel.fields.size(); ++j) {
+        int local = reg_start + j * 6;
+
+        int off = std::stoi(
+            std::string(block.begin() + local, block.begin() + local + 3));
+        int len = std::stoi(
+            std::string(block.begin() + local + 3, block.begin() + local + 6));
+        campo_offsets.emplace_back(off, len);
+      }
+
+      int header_size = input_rel.fields.size() * 6;
+      int field_rel_offset = campo_offsets[field_idx].first;
+      int field_len = campo_offsets[field_idx].second;
+      int field_abs_offset = reg_start + header_size + field_rel_offset;
+
+      std::string field_val(block.begin() + field_abs_offset,
+                            block.begin() + field_abs_offset + field_len);
+      field_val = trim(field_val);
+
+      bool match = false;
+
+      if (field_type == "int") {
+        int field_num, value_num;
+        if (!stringToInt(field_val, field_num) ||
+            !stringToInt(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+
+      } else if (field_type == "float") {
+        float field_num, value_num;
+        if (!stringToFloat(field_val, field_num) ||
+            !stringToFloat(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+
+      } else if (field_type == "string") {
+        match = compareValues(op, field_val, value);
+
+      } else {
+        std::cout << "Tipo de campo no soportado: " << field_type << std::endl;
+        continue;
+      }
+
+      if (match) {
+        std::vector<char> registro(block.begin() + reg_offset,
+                                   block.begin() + reg_offset + reg_size);
+        insert(output_name, registro);
+      }
+    }
+  }
+
+  printRelation(output_name);
+
+  if (output_name == "temp_result") {
+    deleteRelation(output_name);
+  }
+}
+
+void SGBD::selectWhere(const std::string &relation_name,
+                       const std::string &field_name, const std::string &value,
+                       const std::string &op, const std::string &output_name) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+
+  if (rel.is_fixed) {
+    selectWhere_fix(relation_name, field_name, value, op, output_name);
+  } else {
+    selectWhere_var(relation_name, field_name, value, op, output_name);
+  }
+}
+
 void SGBD::printRelBlockInfo(const std::string &relation_name) {
   const Relation &rel = catalog.getRelation(relation_name);
   std::cout << std::endl;

@@ -45,11 +45,18 @@ public:
   void printRelation_fix(const std::string &relation_name);
   void printRelation_var(const std::string &relation_name);
 
+  void selectWhere(const std::string &relation_name,
+                   const std::string &field_name, const std::string &value,
+                   const std::string &op,
+                   const std::string &output_name = "temp_result");
   void selectWhere_fix(const std::string &relation_name,
                        const std::string &field_name, const std::string &value,
                        const std::string &op,
                        const std::string &output_name = "temp_result");
-
+  void selectWhere_var(const std::string &relation_name,
+                       const std::string &field_name, const std::string &value,
+                       const std::string &op,
+                       const std::string &output_name = "temp_result");
   void createOrReplaceRelationFromCSV_fix(const std::string &relation_name,
                                           const std::string &csv_path);
   void createOrReplaceRelationFromCSV_var(const std::string &relation_name,

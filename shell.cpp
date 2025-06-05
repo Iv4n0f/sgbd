@@ -79,12 +79,12 @@ bool Shell::handleCommand(const std::string &line) {
       std::string value = tokens[4];
       std::string relation = tokens[5];
       if (tokens.size() >= 8 && tokens[6] == "|") {
-        sgbd.selectWhere_fix(relation, field, value, op, tokens[7]);
+        sgbd.selectWhere(relation, field, value, op, tokens[7]);
       } else if (tokens.size() == 7 && tokens[6] == "|") {
         std::cerr << "Error: Falta el nombre de la nueva relacion luego de '|'"
                   << std::endl;
       } else {
-        sgbd.selectWhere_fix(relation, field, value, op);
+        sgbd.selectWhere(relation, field, value, op);
       }
     }
   } else if (cmd == "add_from_csv" && tokens.size() == 4) {
