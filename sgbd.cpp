@@ -82,7 +82,7 @@ void SGBD::createOrReplaceRelation(const std::string &name, bool is_fixed,
     int record_size = calculateRecordSize(fields);
     initializeBlockHeader_fix(block, record_size);
   } else {
-    // TODO: inicializar header para tamaño variable
+    initializeBlockHeader_var(block);
   }
 
   rel.blocks.push_back(block);
@@ -105,7 +105,6 @@ void SGBD::printStatus() const {
   catalog.print();
 }
 
-// suficiente para offsets de 4/8 kb
 static std::string intTo4CharStr(int n) {
   char buf[5];
   if (n >= 0 && n <= 9999) {
@@ -116,6 +115,20 @@ static std::string intTo4CharStr(int n) {
     return "####";
   }
   return std::string(buf);
+}
+
+void SGBD::initializeBlockHeader_var(int block_idx) {
+  int number_of_records = 0;
+  int end_of_freespace = disk.block_size;
+
+  std::vector<char> block_data(disk.block_size, 0);
+
+  std::string header_str =
+      intTo4CharStr(number_of_records) + intTo4CharStr(end_of_freespace);
+
+  std::copy(header_str.begin(), header_str.end(), block_data.begin());
+
+  disk.writeBlockByIndex(block_idx, block_data);
 }
 
 void SGBD::initializeBlockHeader_fix(int block_idx, int record_size) {
@@ -183,6 +196,46 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   return true;
 }
 
+bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
+  std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+  int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
+  int end_of_freespace =
+      std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+  int record_size = record.size();
+
+  int total_required = 8 + record_size;
+  int slot_table_end = 8 + num_records * 8;
+
+  if (end_of_freespace - total_required < slot_table_end) {
+    return false; // no hay espacio suficiente
+  }
+
+  int new_offset = end_of_freespace - record_size;
+
+  std::copy(record.begin(), record.end(), block.begin() + new_offset);
+
+  std::string offset_str = intTo4CharStr(new_offset);
+  std::string size_str = intTo4CharStr(record_size);
+
+  std::copy(offset_str.begin(), offset_str.end(),
+            block.begin() + slot_table_end);
+  std::copy(size_str.begin(), size_str.end(),
+            block.begin() + slot_table_end + 4);
+
+  num_records++;
+  end_of_freespace = new_offset;
+
+  std::string new_num = intTo4CharStr(num_records);
+  std::string new_eof = intTo4CharStr(end_of_freespace);
+
+  std::copy(new_num.begin(), new_num.end(), block.begin());
+  std::copy(new_eof.begin(), new_eof.end(), block.begin() + 4);
+
+  disk.writeBlockByIndex(block_idx, block);
+  return true;
+}
+
 bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
   if (!rel.is_fixed) {
     std::cerr << "La relación '" << rel.name << "' no es de registros fijos"
@@ -211,6 +264,40 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
   initializeBlockHeader_fix(new_block, record_size);
 
   if (!insertRecord_fix(new_block, record)) {
+    std::cerr << "Error insertando en bloque nuevo ERROR CRITICO" << std::endl;
+    return false;
+  }
+
+  rel.blocks.push_back(new_block);
+  bitmap.save();
+  catalog.save();
+
+  return true;
+}
+
+bool SGBD::insert_var(Relation &rel, const std::vector<char> &record) {
+  if (rel.is_fixed) {
+    std::cerr << "La relación '" << rel.name << "' no es de registros variables"
+              << std::endl;
+    return false;
+  }
+
+  for (int block_idx : rel.blocks) {
+    if (insertRecord_var(block_idx, record)) {
+      return true;
+    }
+  }
+
+  int new_block = bitmap.getFreeBlock();
+  if (new_block == -1) {
+    std::cerr << "No hay bloques libres disponibles para insertar" << std::endl;
+    return false;
+  }
+
+  bitmap.set(new_block, true);
+  initializeBlockHeader_var(new_block); // La que inicializa bloques variables
+
+  if (!insertRecord_var(new_block, record)) {
     std::cerr << "Error insertando en bloque nuevo ERROR CRITICO" << std::endl;
     return false;
   }
@@ -307,6 +394,121 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
   std::cout << separator << std::endl;
 }
 
+void SGBD::printRelation_var(const std::string &relation_name) {
+  std::cout << std::endl;
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    std::cout << "La relación no es de tamaño variable." << std::endl;
+    return;
+  }
+
+  std::vector<int> column_widths;
+  for (const auto &f : rel.fields) {
+    column_widths.push_back((int)f.name.size());
+  }
+
+  // PRIMERA PASADA: Calcular tamaños máximos de cada columna
+  for (int block_idx : rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
+    int metadata_start = HEADER_SIZE_VAR;
+
+    for (int i = 0; i < num_records; ++i) {
+      int entry_offset = metadata_start + i * 8;
+      int record_offset = std::stoi(std::string(
+          block.begin() + entry_offset, block.begin() + entry_offset + 4));
+      if (record_offset == -1)
+        continue;
+
+      std::string reg_header(block.begin() + record_offset,
+                             block.begin() + record_offset +
+                                 rel.fields.size() * 6);
+
+      for (size_t j = 0; j < rel.fields.size(); ++j) {
+        int off_idx = j * 6;
+        int field_rel_offset = std::stoi(std::string(
+            reg_header.begin() + off_idx, reg_header.begin() + off_idx + 3));
+        int field_length =
+            std::stoi(std::string(reg_header.begin() + off_idx + 3,
+                                  reg_header.begin() + off_idx + 6));
+
+        int absolute_offset =
+            record_offset + rel.fields.size() * 6 + field_rel_offset;
+        std::string field_data(block.begin() + absolute_offset,
+                               block.begin() + absolute_offset + field_length);
+
+        column_widths[j] = std::max(column_widths[j], (int)field_data.size());
+      }
+    }
+  }
+
+  // Imprimir encabezado
+  int total_width = 3;
+  for (int w : column_widths)
+    total_width += w + 1;
+
+  std::string separator(total_width, '-');
+  std::cout << separator << std::endl;
+
+  std::cout << "|";
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    std::cout << " " << std::left << std::setw(column_widths[i])
+              << rel.fields[i].name;
+  }
+  std::cout << " |" << std::endl;
+  std::cout << separator << std::endl;
+
+  // SEGUNDA PASADA: Imprimir datos
+  for (int block_idx : rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
+    int metadata_start = HEADER_SIZE_VAR;
+
+    for (int i = 0; i < num_records; ++i) {
+      int entry_offset = metadata_start + i * 8;
+      int record_offset = std::stoi(std::string(
+          block.begin() + entry_offset, block.begin() + entry_offset + 4));
+      if (record_offset == -1)
+        continue;
+
+      int record_header_size = rel.fields.size() * 6;
+      std::string reg_header(block.begin() + record_offset,
+                             block.begin() + record_offset +
+                                 record_header_size);
+
+      std::vector<std::string> campos;
+      for (size_t j = 0; j < rel.fields.size(); ++j) {
+        int off_idx = j * 6;
+        int field_rel_offset = std::stoi(std::string(
+            reg_header.begin() + off_idx, reg_header.begin() + off_idx + 3));
+        int field_length =
+            std::stoi(std::string(reg_header.begin() + off_idx + 3,
+                                  reg_header.begin() + off_idx + 6));
+
+        int absolute_offset =
+            record_offset + record_header_size + field_rel_offset;
+        std::string field_data(block.begin() + absolute_offset,
+                               block.begin() + absolute_offset + field_length);
+        campos.push_back(field_data);
+      }
+
+      std::cout << "|";
+      for (size_t j = 0; j < campos.size(); ++j) {
+        std::cout << " " << std::left << std::setw(column_widths[j])
+                  << campos[j];
+      }
+      std::cout << " |" << std::endl;
+    }
+  }
+
+  std::cout << separator << std::endl;
+}
+
 void SGBD::createOrReplaceRelationFromCSV_fix(const std::string &relation_name,
                                               const std::string &csv_path) {
   std::ifstream file(csv_path);
@@ -383,6 +585,93 @@ void SGBD::createOrReplaceRelationFromCSV_fix(const std::string &relation_name,
   }
 }
 
+void SGBD::createOrReplaceRelationFromCSV_var(const std::string &relation_name,
+                                              const std::string &csv_path) {
+  std::ifstream file(csv_path);
+  if (!file.is_open()) {
+    std::cerr << "No se pudo abrir el archivo CSV: " << csv_path << std::endl;
+    return;
+  }
+
+  std::string line;
+
+  if (!std::getline(file, line)) {
+    std::cerr << "CSV vacío o mal formato." << std::endl;
+    return;
+  }
+
+  std::vector<std::string> type_size_tokens = parseCSVLine(line);
+  std::vector<std::string> types;
+
+  for (const auto &token : type_size_tokens) {
+    std::istringstream iss(token);
+    std::string t;
+    int dummy;
+    if (!(iss >> t >> dummy)) {
+      std::cerr << "Error al parsear tipo y tamaño: " << token << std::endl;
+      return;
+    }
+    types.push_back(trim(t));
+  }
+
+  if (!std::getline(file, line)) {
+    std::cerr << "No hay línea de nombres de campos." << std::endl;
+    return;
+  }
+
+  std::vector<std::string> field_names = parseCSVLine(line);
+  if (field_names.size() != types.size()) {
+    std::cerr << "Cantidad de campos y tipos no coincide." << std::endl;
+    return;
+  }
+
+  std::vector<Field> fields;
+  for (size_t i = 0; i < field_names.size(); ++i) {
+    fields.push_back(Field{trim(field_names[i]), types[i], -1});
+  }
+
+  createOrReplaceRelation(relation_name, false, fields);
+
+  while (std::getline(file, line)) {
+    if (line.empty()) continue;
+
+    std::vector<std::string> values = parseCSVLine(line);
+    if (values.size() != field_names.size()) {
+      std::cerr << "Registro con cantidad de campos incorrecta, ignorado." << std::endl;
+      continue;
+    }
+
+    std::vector<std::string> trimmed_fields;
+    for (auto &v : values) trimmed_fields.push_back(trim(v));
+
+    int current_relative_offset = 0;
+
+    std::vector<char> record;
+    std::ostringstream header_stream;
+
+    for (const auto &field : trimmed_fields) {
+      std::ostringstream off, len;
+      off << std::setw(3) << std::setfill('0') << current_relative_offset;
+      len << std::setw(3) << std::setfill('0') << field.size();
+
+      header_stream << off.str() << len.str();
+      current_relative_offset += field.size();
+    }
+
+    std::string header = header_stream.str();
+    record.insert(record.end(), header.begin(), header.end());
+
+    for (const auto &field : trimmed_fields) {
+      record.insert(record.end(), field.begin(), field.end());
+    }
+
+    if (!insert(relation_name, record)) {
+      std::cerr << "Error insertando registro en la relación." << std::endl;
+      return;
+    }
+  }
+}
+
 bool SGBD::deleteRelation(const std::string &name) {
   if (catalog.hasRelation(name)) {
     const Relation &oldRel = catalog.getRelation(name);
@@ -423,11 +712,11 @@ void SGBD::printRelationSchema(const std::string &relation_name) {
 }
 
 void SGBD::printRelation(const std::string &relation_name) {
-  const Relation rel = catalog.getRelation(relation_name);
+  const Relation &rel = catalog.getRelation(relation_name);
   if (rel.is_fixed) {
     printRelation_fix(relation_name);
   } else {
-    // TODO: printRelation_var;
+    printRelation_var(relation_name);
   }
 }
 
@@ -437,8 +726,7 @@ bool SGBD::insert(const std::string &relation_name,
   if (rel.is_fixed) {
     return insert_fix(rel, record);
   } else {
-    // TODO: insert_var();
-    return false;
+    return insert_var(rel, record);
   }
 }
 
@@ -746,9 +1034,11 @@ void SGBD::printDiskCapacityInfo() {
 
       if (rel.is_fixed) {
         std::vector<char> block = disk.readBlockByIndex(block_idx);
-        
-        int record_size = std::stoi(std::string(block.begin() + 4, block.begin() + 8));
-        int active_records = std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+
+        int record_size =
+            std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+        int active_records =
+            std::stoi(std::string(block.begin() + 12, block.begin() + 16));
 
         bytes_used_in_data += record_size * active_records;
       }
@@ -765,7 +1055,8 @@ void SGBD::printDiskCapacityInfo() {
   std::cout << "Capacidad total del disco: " << total_capacity << " bytes\n";
   std::cout << "Capacidad libre: " << free_capacity << " bytes\n";
   std::cout << "Capacidad ocupada: " << used_capacity << " bytes\n";
-  std::cout << "Capacidad de bloques con datos (relaciones): " << data_blocks_capacity << " bytes\n";
-  std::cout << "Capacidad usada en sectores con datos (registros activos): " << sector_data_capacity << " bytes\n";
+  std::cout << "Capacidad de bloques con datos (relaciones): "
+            << data_blocks_capacity << " bytes\n";
+  std::cout << "Capacidad usada en sectores con datos (registros activos): "
+            << sector_data_capacity << " bytes\n";
 }
-

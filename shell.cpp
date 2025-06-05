@@ -90,6 +90,8 @@ bool Shell::handleCommand(const std::string &line) {
   } else if (cmd == "add_from_csv" && tokens.size() == 4) {
     if (tokens[3] == "fix") {
       sgbd.createOrReplaceRelationFromCSV_fix(tokens[1], tokens[2]);
+    } else if (tokens[3] == "var") {
+      sgbd.createOrReplaceRelationFromCSV_var(tokens[1], tokens[2]);
     }
   } else if (cmd == "rel_block_info" && tokens.size() == 2) {
     sgbd.printRelBlockInfo(tokens[1]);
