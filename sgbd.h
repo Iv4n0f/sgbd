@@ -38,6 +38,8 @@ public:
                        const std::vector<std::string> &values);
   void insertFromShell_fix(const std::string &relation_name,
                            const std::vector<std::string> &values);
+  void insertFromShell_var(const std::string &relation_name,
+                           const std::vector<std::string> &values);
 
   void printRelation(const std::string &relation_name);
   void printRelation_fix(const std::string &relation_name);

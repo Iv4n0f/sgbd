@@ -990,16 +990,79 @@ void SGBD::insertFromShell_fix(const std::string &relation_name,
   disk.printBlockPosition(new_block);
 }
 
+void SGBD::insertFromShell_var(const std::string &relation_name,
+                                const std::vector<std::string> &values) {
+  Relation &rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    std::cerr << "Error: la relación '" << relation_name
+              << "' no es de registros variables." << std::endl;
+    return;
+  }
+
+  if ((int)values.size() != (int)rel.fields.size()) {
+    std::cerr << "Error: número de valores no coincide con el número de campos." << std::endl;
+    return;
+  }
+
+  std::vector<std::string> trimmed_values;
+  for (const auto &val : values)
+    trimmed_values.push_back(trim(val));
+
+  std::ostringstream header_stream;
+  int current_relative_offset = 0;
+
+  for (size_t i = 0; i < trimmed_values.size(); ++i) {
+    const std::string &field = trimmed_values[i];
+
+    int offset = current_relative_offset;
+    int length = field.size();
+    current_relative_offset += length;
+
+    header_stream << std::setw(3) << std::setfill('0') << offset;
+    header_stream << std::setw(3) << std::setfill('0') << length;
+  }
+
+  std::string header = header_stream.str();
+  std::vector<char> record(header.begin(), header.end());
+
+  for (const std::string &field : trimmed_values)
+    record.insert(record.end(), field.begin(), field.end());
+
+  for (int block_idx : rel.blocks) {
+    if (insertRecord_var(block_idx, record)) {
+      disk.printBlockPosition(block_idx);
+      return;
+    }
+  }
+
+  int new_block = bitmap.getFreeBlock();
+  if (new_block == -1) {
+    std::cerr << "Error: no hay bloques libres disponibles." << std::endl;
+    return;
+  }
+
+  bitmap.set(new_block, true);
+  initializeBlockHeader_var(new_block);
+
+  if (!insertRecord_var(new_block, record)) {
+    std::cerr << "Error crítico: no se pudo insertar ni en nuevo bloque." << std::endl;
+    return;
+  }
+
+  rel.blocks.push_back(new_block);
+  bitmap.save();
+  catalog.save();
+
+  disk.printBlockPosition(new_block);
+}
+
 void SGBD::insertFromShell(const std::string &relation_name,
                            const std::vector<std::string> &values) {
   Relation &rel = catalog.getRelation(relation_name);
   if (rel.is_fixed) {
     insertFromShell_fix(relation_name, values);
   } else {
-    std::cerr
-        << "Inserción para registros de tamaño variable no implementada aún."
-        << std::endl;
-    // insertFromShell_var(relation_name, values); // futuro
+    insertFromShell_var(relation_name, values);
   }
 }
 
