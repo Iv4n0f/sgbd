@@ -633,16 +633,19 @@ void SGBD::createOrReplaceRelationFromCSV_var(const std::string &relation_name,
   createOrReplaceRelation(relation_name, false, fields);
 
   while (std::getline(file, line)) {
-    if (line.empty()) continue;
+    if (line.empty())
+      continue;
 
     std::vector<std::string> values = parseCSVLine(line);
     if (values.size() != field_names.size()) {
-      std::cerr << "Registro con cantidad de campos incorrecta, ignorado." << std::endl;
+      std::cerr << "Registro con cantidad de campos incorrecta, ignorado."
+                << std::endl;
       continue;
     }
 
     std::vector<std::string> trimmed_fields;
-    for (auto &v : values) trimmed_fields.push_back(trim(v));
+    for (auto &v : values)
+      trimmed_fields.push_back(trim(v));
 
     int current_relative_offset = 0;
 
@@ -991,7 +994,7 @@ void SGBD::insertFromShell_fix(const std::string &relation_name,
 }
 
 void SGBD::insertFromShell_var(const std::string &relation_name,
-                                const std::vector<std::string> &values) {
+                               const std::vector<std::string> &values) {
   Relation &rel = catalog.getRelation(relation_name);
   if (rel.is_fixed) {
     std::cerr << "Error: la relación '" << relation_name
@@ -1000,7 +1003,8 @@ void SGBD::insertFromShell_var(const std::string &relation_name,
   }
 
   if ((int)values.size() != (int)rel.fields.size()) {
-    std::cerr << "Error: número de valores no coincide con el número de campos." << std::endl;
+    std::cerr << "Error: número de valores no coincide con el número de campos."
+              << std::endl;
     return;
   }
 
@@ -1045,7 +1049,8 @@ void SGBD::insertFromShell_var(const std::string &relation_name,
   initializeBlockHeader_var(new_block);
 
   if (!insertRecord_var(new_block, record)) {
-    std::cerr << "Error crítico: no se pudo insertar ni en nuevo bloque." << std::endl;
+    std::cerr << "Error crítico: no se pudo insertar ni en nuevo bloque."
+              << std::endl;
     return;
   }
 
@@ -1095,15 +1100,24 @@ void SGBD::printDiskCapacityInfo() {
     for (int block_idx : rel.blocks) {
       data_blocks++;
 
-      if (rel.is_fixed) {
-        std::vector<char> block = disk.readBlockByIndex(block_idx);
+      std::vector<char> block = disk.readBlockByIndex(block_idx);
 
+      if (rel.is_fixed) {
         int record_size =
             std::stoi(std::string(block.begin() + 4, block.begin() + 8));
         int active_records =
             std::stoi(std::string(block.begin() + 12, block.begin() + 16));
 
-        bytes_used_in_data += record_size * active_records;
+        bytes_used_in_data += record_size * active_records + HEADER_SIZE_FIX;
+      } else {
+        int total_records =
+            std::stoi(std::string(block.begin(), block.begin() + 4));
+        int free_space_offset =
+            std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+        int used_data_bytes = block_size - free_space_offset;
+
+        bytes_used_in_data +=
+            used_data_bytes + HEADER_SIZE_VAR + 8 * total_records;
       }
     }
   }
@@ -1114,7 +1128,7 @@ void SGBD::printDiskCapacityInfo() {
   int data_blocks_capacity = data_blocks * block_size;
   int sector_data_capacity = bytes_used_in_data;
 
-  std::cout << "Cantidad total de bloques: " << bitmap.size() << "\n";
+  std::cout << "Cantidad total de bloques: " << total_blocks << "\n";
   std::cout << "Capacidad total del disco: " << total_capacity << " bytes\n";
   std::cout << "Capacidad libre: " << free_capacity << " bytes\n";
   std::cout << "Capacidad ocupada: " << used_capacity << " bytes\n";
