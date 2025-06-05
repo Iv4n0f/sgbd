@@ -199,23 +199,32 @@ void Disk::writeBlock(int plato, int superficie, int pista, int sector,
 }
 
 BlockPos Disk::blockPosFromIndex(int idx) {
-  int bloques_por_plato =
-      num_superficies * num_pistas * num_sectores * blocks_per_sector;
+  // Cantidad total de bloques verticales (una columna de todas las superficies de un plato)
+  int bloques_por_columna = num_superficies * blocks_per_sector;
 
-  int plato = idx / bloques_por_plato;
-  idx = idx % bloques_por_plato;
+  // Total por sector: todas las columnas de todos los platos
+  int bloques_por_sector = num_platos * bloques_por_columna;
 
-  int bloques_por_superficie = num_pistas * num_sectores * blocks_per_sector;
-  int superficie = idx / bloques_por_superficie;
-  idx = idx % bloques_por_superficie;
+  // Total por pista
+  int bloques_por_pista = num_sectores * bloques_por_sector;
 
-  int bloques_por_pista = num_sectores * blocks_per_sector;
+  // Primero obtenemos la pista
   int pista = idx / bloques_por_pista;
-  idx = idx % bloques_por_pista;
+  idx %= bloques_por_pista;
 
-  int bloques_por_sector = blocks_per_sector;
+  // Luego el sector
   int sector = idx / bloques_por_sector;
-  int bloque = idx % bloques_por_sector;
+  idx %= bloques_por_sector;
+
+  // Luego el plato
+  int plato = idx / bloques_por_columna;
+  idx %= bloques_por_columna;
+
+  // Luego la superficie
+  int superficie = idx / blocks_per_sector;
+
+  // Finalmente el bloque dentro del sector
+  int bloque = idx % blocks_per_sector;
 
   return {plato, superficie, pista, sector, bloque};
 }
