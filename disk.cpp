@@ -52,7 +52,8 @@ bool Disk::configChanged(const DiskConfig &a, const DiskConfig &b) {
 }
 
 bool Disk::directoryIsComplete() {
-  auto sample_sector = fs::path(root_path) / "plato0" / "superficie0" / "pista0" / "sector0";
+  auto sample_sector =
+      fs::path(root_path) / "plato0" / "superficie0" / "pista0" / "sector0";
   return fs::exists(sample_sector);
 }
 
@@ -68,7 +69,9 @@ Disk::Disk(const std::string &root, const std::string &config)
       (fs::path(root_path) / "disk.cfg").string();
   bool internal_exists = loadConfig(internal_config_path, internal_cfg);
 
-  bool need_recreate = !internal_exists || configChanged(user_cfg, internal_cfg) || !directoryIsComplete();
+  bool need_recreate = !internal_exists ||
+                       configChanged(user_cfg, internal_cfg) ||
+                       !directoryIsComplete();
 
   if (need_recreate) {
     if (fs::exists(root_path)) {
@@ -100,7 +103,8 @@ void Disk::createStructure() {
 
   if (!fs::exists(root_path)) {
     if (!fs::create_directory(root_path)) {
-      throw std::runtime_error("No se pudo crear el directorio raíz: " + root_path);
+      throw std::runtime_error("No se pudo crear el directorio raíz: " +
+                               root_path);
     }
   }
 
@@ -110,34 +114,41 @@ void Disk::createStructure() {
 
     if (!fs::exists(plato_dir)) {
       if (!fs::create_directory(plato_dir)) {
-        throw std::runtime_error("No se pudo crear el directorio plato: " + plato_dir);
+        throw std::runtime_error("No se pudo crear el directorio plato: " +
+                                 plato_dir);
       }
     }
 
     for (int superficie = 0; superficie < num_superficies; ++superficie) {
-      std::string superficie_dir = plato_dir + "/superficie" + std::to_string(superficie);
+      std::string superficie_dir =
+          plato_dir + "/superficie" + std::to_string(superficie);
       if (!fs::exists(superficie_dir)) {
         if (!fs::create_directory(superficie_dir)) {
-          throw std::runtime_error("No se pudo crear el directorio superficie: " + superficie_dir);
+          throw std::runtime_error(
+              "No se pudo crear el directorio superficie: " + superficie_dir);
         }
       }
 
       for (int pista = 0; pista < num_pistas; ++pista) {
-        std::string pista_dir = superficie_dir + "/pista" + std::to_string(pista);
+        std::string pista_dir =
+            superficie_dir + "/pista" + std::to_string(pista);
         if (!fs::exists(pista_dir)) {
           if (!fs::create_directory(pista_dir)) {
-            throw std::runtime_error("No se pudo crear el directorio pista: " + pista_dir);
+            throw std::runtime_error("No se pudo crear el directorio pista: " +
+                                     pista_dir);
           }
         }
 
         for (int sector = 0; sector < num_sectores; ++sector) {
           // Aquí sector es el archivo, que contiene varios bloques
-          std::string sector_file = pista_dir + "/sector" + std::to_string(sector);
+          std::string sector_file =
+              pista_dir + "/sector" + std::to_string(sector);
 
           if (!fs::exists(sector_file)) {
             std::ofstream ofs(sector_file, std::ios::binary);
             if (!ofs) {
-              throw std::runtime_error("No se pudo crear archivo sector: " + sector_file);
+              throw std::runtime_error("No se pudo crear archivo sector: " +
+                                       sector_file);
             }
 
             std::vector<char> empty_sector(blocks_per_sector * block_size, 0);
@@ -187,9 +198,9 @@ void Disk::writeBlock(int plato, int superficie, int pista, int sector,
   fs_sector.write(data.data(), block_size);
 }
 
-
 BlockPos Disk::blockPosFromIndex(int idx) {
-  int bloques_por_plato = num_superficies * num_pistas * num_sectores * blocks_per_sector;
+  int bloques_por_plato =
+      num_superficies * num_pistas * num_sectores * blocks_per_sector;
 
   int plato = idx / bloques_por_plato;
   idx = idx % bloques_por_plato;
@@ -209,12 +220,63 @@ BlockPos Disk::blockPosFromIndex(int idx) {
   return {plato, superficie, pista, sector, bloque};
 }
 
+void Disk::printBlockPosition(int idx) {
+  BlockPos pos = blockPosFromIndex(idx);
+  std::cout << "Bloque " << idx << " ubicado en plato " << pos.plato
+            << ", superficie " << pos.superficie << ", pista " << pos.pista
+            << ", sector " << pos.sector << ", bloque " << pos.bloque
+            << std::endl;
+}
+
+std::string Disk::getBlockPosition(int idx) {
+  BlockPos pos = blockPosFromIndex(idx);
+  return "plato " + std::to_string(pos.plato) + ", superficie " +
+         std::to_string(pos.superficie) + ", pista " +
+         std::to_string(pos.pista) + ", sector " + std::to_string(pos.sector) +
+         ", bloque " + std::to_string(pos.bloque);
+}
+
 std::vector<char> Disk::readBlockByIndex(int idx) {
   BlockPos pos = blockPosFromIndex(idx);
-  return readBlock(pos.plato, pos.superficie, pos.pista, pos.sector, pos.bloque);
+  return readBlock(pos.plato, pos.superficie, pos.pista, pos.sector,
+                   pos.bloque);
 }
 
 void Disk::writeBlockByIndex(int idx, const std::vector<char> &data) {
   BlockPos pos = blockPosFromIndex(idx);
-  writeBlock(pos.plato, pos.superficie, pos.pista, pos.sector, pos.bloque, data);
+  writeBlock(pos.plato, pos.superficie, pos.pista, pos.sector, pos.bloque,
+             data);
+}
+
+void Disk::printDiskInfo() const {
+  std::cout << "==== Información del Disco ====" << std::endl;
+  std::cout << "Nro. de Platos: " << num_platos << std::endl;
+  std::cout << "Nro. de Superficies por plato: " << num_superficies
+            << std::endl;
+  std::cout << "Nro. de Pistas por superficie: " << num_pistas << std::endl;
+  std::cout << "Nro. de Sectores por pista: " << num_sectores << std::endl;
+  std::cout << "Nro. Bloques por sector: " << blocks_per_sector << std::endl;
+
+  int sector_size_bytes = block_size * blocks_per_sector;
+  double sector_size_kb = static_cast<double>(sector_size_bytes) / 1024.0;
+  double sector_size_mb = sector_size_kb / 1024.0;
+
+  std::cout << "Capacidad del sector (KB): " << sector_size_kb << std::endl;
+  std::cout << "Capacidad del sector (MB): " << sector_size_mb << std::endl;
+
+  int bloques_por_pista = num_sectores * blocks_per_sector;
+  std::cout << "Nro. de Bloques por pista: " << bloques_por_pista << std::endl;
+
+  int bloques_por_superficie = bloques_por_pista * num_pistas;
+  int bloques_por_plato = bloques_por_superficie * num_superficies;
+  std::cout << "Nro. de Bloques por plato: " << bloques_por_plato << std::endl;
+
+  int total_bloques = bloques_por_plato * num_platos;
+  int capacidad_disco_bytes = total_bloques * block_size;
+  double capacidad_disco_mb =
+      static_cast<double>(capacidad_disco_bytes) / (1024.0 * 1024.0);
+  std::cout << "Capacidad del disco (MB): " << capacidad_disco_mb << std::endl;
+
+  std::cout << "Capacidad del bloque (bytes): " << block_size << std::endl;
+  system("tree disk");
 }

@@ -54,6 +54,9 @@ public:
                   const std::vector<char> &data);
 
   BlockPos blockPosFromIndex(int idx);
+  void printBlockPosition(int idx);
+  std::string getBlockPosition(int idx);
   std::vector<char> readBlockByIndex(int idx);
   void writeBlockByIndex(int idx, const std::vector<char> &data);
+  void printDiskInfo() const;
 };

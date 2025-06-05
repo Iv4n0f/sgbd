@@ -5,9 +5,9 @@
 
 class Shell {
   public:
+    SGBD &sgbd;
     Shell(SGBD &sgbd);
     void run();
   private:
-    SGBD &sgbd;
     bool handleCommand(const std::string &line);
 };

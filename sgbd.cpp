@@ -242,7 +242,7 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
     column_widths.push_back(std::max((int)f.name.size(), f.size));
   }
 
-  int total_width = 2;
+  int total_width = 3;
   for (int w : column_widths)
     total_width += w + 1;
 
@@ -394,11 +394,11 @@ bool SGBD::deleteRelation(const std::string &name) {
     catalog.save();
     return true;
   }
+  std::cout << "Relacion a borrar no encontrada: " << name << std::endl;
   return false;
 }
 
 void SGBD::printRelationSchema(const std::string &relation_name) {
-  std::cout << std::endl;
   const Relation &rel = catalog.getRelation(relation_name);
   size_t max_field_name_len = 0;
   for (auto field : rel.fields) {
@@ -420,7 +420,6 @@ void SGBD::printRelationSchema(const std::string &relation_name) {
       std::cout << ", ";
   }
   std::cout << std::endl;
-  std::cout << std::endl;
 }
 
 void SGBD::printRelation(const std::string &relation_name) {
@@ -432,14 +431,286 @@ void SGBD::printRelation(const std::string &relation_name) {
   }
 }
 
-bool SGBD::insert(const std::string &relation_name, const std::vector<char> &record) {
+bool SGBD::insert(const std::string &relation_name,
+                  const std::vector<char> &record) {
   Relation &rel = catalog.getRelation(relation_name);
-  if(rel.is_fixed) {
+  if (rel.is_fixed) {
     return insert_fix(rel, record);
   } else {
-    //TODO: insert_var();
+    // TODO: insert_var();
     return false;
   }
 }
 
+bool compareValues(const std::string &op, int v1, int v2) {
+  if (op == "==")
+    return v1 == v2;
+  if (op == "!=")
+    return v1 != v2;
+  if (op == "<")
+    return v1 < v2;
+  if (op == "<=")
+    return v1 <= v2;
+  if (op == ">")
+    return v1 > v2;
+  if (op == ">=")
+    return v1 >= v2;
+  std::cout << "Operador no válido: " << op << std::endl;
+  return false;
+}
 
+bool compareValues(const std::string &op, float v1, float v2) {
+  if (op == "==")
+    return v1 == v2;
+  if (op == "!=")
+    return v1 != v2;
+  if (op == "<")
+    return v1 < v2;
+  if (op == "<=")
+    return v1 <= v2;
+  if (op == ">")
+    return v1 > v2;
+  if (op == ">=")
+    return v1 >= v2;
+  std::cout << "Operador no válido: " << op << std::endl;
+  return false;
+}
+
+bool compareValues(const std::string &op, const std::string &v1,
+                   const std::string &v2) {
+  if (op == "==")
+    return v1 == v2;
+  if (op == "!=")
+    return v1 != v2;
+  if (op == "<")
+    return v1 < v2;
+  if (op == "<=")
+    return v1 <= v2;
+  if (op == ">")
+    return v1 > v2;
+  if (op == ">=")
+    return v1 >= v2;
+  std::cout << "Operador no válido: " << op << std::endl;
+  return false;
+}
+
+bool stringToInt(const std::string &s, int &out) {
+  char *end = nullptr;
+  long val = std::strtol(s.c_str(), &end, 10);
+  if (end != s.c_str() && *end == '\0') {
+    out = static_cast<int>(val);
+    return true;
+  }
+  return false;
+}
+
+bool stringToFloat(const std::string &s, float &out) {
+  char *end = nullptr;
+  float val = std::strtof(s.c_str(), &end);
+  if (end != s.c_str() && *end == '\0') {
+    out = val;
+    return true;
+  }
+  return false;
+}
+
+void SGBD::selectWhere_fix(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value, const std::string &op,
+                           const std::string &output_name) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &input_rel = catalog.getRelation(relation_name);
+  if (!input_rel.is_fixed) {
+    std::cout << "Solo se soportan relaciones de tamaño fijo, llamar a "
+                 "selectWhere_var()"
+              << std::endl;
+    return;
+  }
+
+  int field_idx = -1, offset = 0;
+  for (size_t i = 0; i < input_rel.fields.size(); ++i) {
+    if (input_rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+    offset += input_rel.fields[i].size;
+  }
+
+  if (field_idx == -1) {
+    std::cout << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  createOrReplaceRelation(output_name, true, input_rel.fields);
+
+  int record_size = calculateRecordSize(input_rel.fields);
+  const std::string &field_type = input_rel.fields[field_idx].type;
+
+  for (int block_idx : input_rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+    int free_list_head =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
+    int record_size_header =
+        std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+    int active_records =
+        std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+
+    if (record_size_header != record_size) {
+      std::cout << "Record size no coincide, saltando bloque ... ERROR critico"
+                << std::endl;
+      continue;
+    }
+
+    std::unordered_set<int> deleted;
+    int current = free_list_head;
+    while (current != -1) {
+      deleted.insert(current);
+      int reg_offset = HEADER_SIZE_FIX + current * record_size;
+      int next = std::stoi(std::string(block.begin() + reg_offset,
+                                       block.begin() + reg_offset + 4));
+      current = next;
+    }
+
+    int total = active_records + deleted.size();
+    int pos = HEADER_SIZE_FIX;
+
+    for (int i = 0; i < total; ++i) {
+      if (deleted.count(i)) {
+        pos += record_size;
+        continue;
+      }
+
+      std::string field_val(block.begin() + pos + offset,
+                            block.begin() + pos + offset +
+                                input_rel.fields[field_idx].size);
+      field_val = trim(field_val);
+
+      bool match = false;
+
+      if (field_type == "int") {
+        int field_num, value_num;
+        if (!stringToInt(field_val, field_num) ||
+            !stringToInt(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+
+      } else if (field_type == "float") {
+        float field_num, value_num;
+        if (!stringToFloat(field_val, field_num) ||
+            !stringToFloat(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+
+      } else if (field_type == "string") {
+        match = compareValues(op, field_val, value);
+
+      } else {
+        std::cout << "Tipo de campo no soportado: " << field_type << std::endl;
+        continue;
+      }
+
+      if (match) {
+        std::vector<char> reg(block.begin() + pos,
+                              block.begin() + pos + record_size);
+        insert(output_name, reg);
+      }
+
+      pos += record_size;
+    }
+  }
+
+  printRelation(output_name);
+
+  if (output_name == "temp_result") {
+    deleteRelation(output_name);
+  }
+}
+
+void SGBD::printRelBlockInfo(const std::string &relation_name) {
+  const Relation &rel = catalog.getRelation(relation_name);
+  std::cout << std::endl;
+  std::cout << "Bloques de la relacion " << rel.name << ": " << std::endl;
+  for (auto block : rel.blocks) {
+    std::cout << "Bloque " << block << " ubicado en "
+              << disk.getBlockPosition(block) << std::endl;
+  }
+  std::cout << std::endl;
+}
+
+void SGBD::insertFromShell_fix(const std::string &relation_name,
+                               const std::vector<std::string> &values) {
+  Relation &rel = catalog.getRelation(relation_name);
+  if (!rel.is_fixed) {
+    std::cerr << "Error: la relación '" << relation_name
+              << "' no es de registros fijos." << std::endl;
+    return;
+  }
+
+  if ((int)values.size() != (int)rel.fields.size()) {
+    std::cerr << "Error: número de valores no coincide con el número de campos."
+              << std::endl;
+    return;
+  }
+
+  std::vector<char> record;
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    int len = rel.fields[i].size;
+    std::string val = values[i];
+
+    if ((int)val.size() > len) {
+      std::cerr << "Error: valor '" << val << "' excede el tamaño del campo '"
+                << rel.fields[i].name << "'." << std::endl;
+      return;
+    }
+
+    std::string padded = val + std::string(len - val.size(), ' ');
+    record.insert(record.end(), padded.begin(), padded.end());
+  }
+
+  for (int block_idx : rel.blocks) {
+    if (insertRecord_fix(block_idx, record)) {
+      disk.printBlockPosition(block_idx);
+      return;
+    }
+  }
+
+  int new_block = bitmap.getFreeBlock();
+  if (new_block == -1) {
+    std::cerr << "Error: no hay bloques libres." << std::endl;
+    return;
+  }
+
+  bitmap.set(new_block, true);
+  initializeBlockHeader_fix(new_block, calculateRecordSize(rel.fields));
+
+  if (!insertRecord_fix(new_block, record)) {
+    std::cerr << "Error crítico al insertar en nuevo bloque." << std::endl;
+    return;
+  }
+
+  rel.blocks.push_back(new_block);
+  bitmap.save();
+  catalog.save();
+
+  disk.printBlockPosition(new_block);
+}
+
+void SGBD::insertFromShell(const std::string &relation_name,
+                           const std::vector<std::string> &values) {
+  Relation &rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    insertFromShell_fix(relation_name, values);
+  } else {
+    std::cerr
+        << "Inserción para registros de tamaño variable no implementada aún."
+        << std::endl;
+    // insertFromShell_var(relation_name, values); // futuro
+  }
+}
