@@ -62,6 +62,32 @@ public:
   void createOrReplaceRelationFromCSV_var(const std::string &relation_name,
                                           const std::string &csv_path);
 
+  void insertNFromCSV(const std::string &relation_name,
+                      const std::string &csv_path, int N);
+  void insertNFromCSV_fix(const std::string &relation_name,
+                          const std::string &csv_path, int N);
+
+  void insertNFromCSV_var(const std::string &relation_name,
+                          const std::string &csv_path, int N);
+
+  void deleteWhere(const std::string &relation_name,
+                   const std::string &field_name, const std::string &value,
+                   const std::string &op);
+  void deleteWhere_fix(const std::string &relation_name,
+                       const std::string &field_name, const std::string &value,
+                       const std::string &op);
+  void deleteWhere_var(const std::string &relation_name,
+                       const std::string &field_name, const std::string &value,
+                       const std::string &op);
+  void compactBlock_var(int block_idx);
+
   void printRelationSchema(const std::string &relation_name);
   void printDiskCapacityInfo();
+
+  // TODO: eliminar registros con logica similar a a where y actualizando
+  // headers de cada relacion
+
+  // TODO: mostrar capacidad de sector con datos (recibe bloque y muestra la
+  // capacidad de cada uno de lo bloques de ese sector y del mismo sector en
+  // total
 };

@@ -93,6 +93,8 @@ bool Shell::handleCommand(const std::string &line) {
     } else if (tokens[3] == "var") {
       sgbd.createOrReplaceRelationFromCSV_var(tokens[1], tokens[2]);
     }
+  } else if (cmd == "insert_from_csv" && tokens.size() == 4) {
+    sgbd.insertNFromCSV(tokens[1], tokens[2], std::stoi(tokens[3]));
   } else if (cmd == "rel_block_info" && tokens.size() == 2) {
     sgbd.printRelBlockInfo(tokens[1]);
   } else if (cmd == "block_info" && tokens.size() == 2) {
@@ -104,6 +106,13 @@ bool Shell::handleCommand(const std::string &line) {
   } else if (cmd == "delete" && tokens.size() >= 2) {
     if (tokens.size() == 2)
       sgbd.deleteRelation(tokens[1]);
+    else if (tokens[1] == "where" && tokens.size() == 6) {
+      std::string field = tokens[2];
+      std::string op = tokens[3];
+      std::string value = tokens[4];
+      std::string relation = tokens[5];
+      sgbd.deleteWhere(relation, field, value, op);
+    }
   } else if (cmd == "insert" && tokens.size() >= 3) {
     std::string relation_name = tokens[1];
     std::vector<std::string> values(tokens.begin() + 2, tokens.end());

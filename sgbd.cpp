@@ -887,6 +887,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
         int field_num, value_num;
         if (!stringToInt(field_val, field_num) ||
             !stringToInt(value, value_num)) {
+          pos += record_size;
           continue;
         }
         match = compareValues(op, field_num, value_num);
@@ -895,6 +896,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
         float field_num, value_num;
         if (!stringToFloat(field_val, field_num) ||
             !stringToFloat(value, value_num)) {
+          pos += record_size;
           continue;
         }
         match = compareValues(op, field_num, value_num);
@@ -904,6 +906,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
 
       } else {
         std::cout << "Tipo de campo no soportado: " << field_type << std::endl;
+        pos += record_size;
         continue;
       }
 
@@ -1055,12 +1058,34 @@ void SGBD::selectWhere(const std::string &relation_name,
 
 void SGBD::printRelBlockInfo(const std::string &relation_name) {
   const Relation &rel = catalog.getRelation(relation_name);
-  std::cout << std::endl;
-  std::cout << "Bloques de la relacion " << rel.name << ": " << std::endl;
-  for (auto block : rel.blocks) {
-    std::cout << "Bloque " << block << " ubicado en "
-              << disk.getBlockPosition(block) << std::endl;
+  std::cout << "\nBloques de la relación '" << rel.name << "':\n";
+
+  for (int block_idx : rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+    int used_bytes = 0;
+
+    if (rel.is_fixed) {
+      int record_size =
+          std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+      int active_records =
+          std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+      used_bytes = HEADER_SIZE_FIX + record_size * active_records;
+    } else {
+      int total_records =
+          std::stoi(std::string(block.begin(), block.begin() + 4));
+      int free_space_offset =
+          std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+      int data_bytes = disk.block_size - free_space_offset;
+      used_bytes = HEADER_SIZE_VAR + 8 * total_records + data_bytes;
+    }
+
+    std::cout << "Bloque " << block_idx
+              << " | Posición física: " << disk.getBlockPosition(block_idx)
+              << " | Bytes ocupados: " << used_bytes << " / " << disk.block_size
+              << '\n';
   }
+
   std::cout << std::endl;
 }
 
@@ -1265,4 +1290,449 @@ void SGBD::printDiskCapacityInfo() {
             << data_blocks_capacity << " bytes\n";
   std::cout << "Capacidad usada en sectores con datos (registros activos): "
             << sector_data_capacity << " bytes\n";
+}
+
+void SGBD::insertNFromCSV_fix(const std::string &relation_name,
+                              const std::string &csv_path, int N) {
+
+  if (!catalog.hasRelation(relation_name)) {
+    std::cerr << "La relación '" << relation_name << "' no existe."
+              << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+  if (!rel.is_fixed) {
+    std::cerr << "La relación no es de tamaño fijo." << std::endl;
+    return;
+  }
+
+  std::ifstream file(csv_path);
+  if (!file.is_open()) {
+    std::cerr << "No se pudo abrir el archivo CSV: " << csv_path << std::endl;
+    return;
+  }
+
+  std::string line;
+
+  if (!std::getline(file, line)) {
+    std::cerr << "CSV vacío o mal formato." << std::endl;
+    return;
+  }
+
+  if (!std::getline(file, line)) {
+    std::cerr << "No hay línea de nombres de campos." << std::endl;
+    return;
+  }
+
+  const std::vector<Field> &fields = rel.fields;
+  int inserted = 0;
+
+  while (inserted < N && std::getline(file, line)) {
+    if (line.empty())
+      continue;
+
+    std::vector<std::string> values = parseCSVLine(line);
+    if (values.size() != fields.size()) {
+      std::cerr << "Registro con cantidad de campos incorrecta, ignorado."
+                << std::endl;
+      continue;
+    }
+
+    std::vector<char> record;
+    for (size_t i = 0; i < values.size(); ++i) {
+      std::string val = trim(values[i]);
+      int field_size = fields[i].size;
+      for (int j = 0; j < field_size; ++j) {
+        char c = (j < (int)val.size()) ? val[j] : ' ';
+        record.push_back(c);
+      }
+    }
+
+    if (!insert(relation_name, record)) {
+      std::cerr << "Error insertando registro en la relación." << std::endl;
+      return;
+    }
+
+    ++inserted;
+  }
+}
+
+void SGBD::insertNFromCSV_var(const std::string &relation_name,
+                              const std::string &csv_path, int N) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cerr << "La relación '" << relation_name << "' no existe."
+              << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    std::cerr << "La relación no es de tamaño variable." << std::endl;
+    return;
+  }
+
+  std::ifstream file(csv_path);
+  if (!file.is_open()) {
+    std::cerr << "No se pudo abrir el archivo CSV: " << csv_path << std::endl;
+    return;
+  }
+
+  std::string line;
+
+  if (!std::getline(file, line)) {
+    std::cerr << "CSV vacío o mal formato." << std::endl;
+    return;
+  }
+
+  if (!std::getline(file, line)) {
+    std::cerr << "No hay línea de nombres de campos." << std::endl;
+    return;
+  }
+
+  int count = 0;
+  while (count < N && std::getline(file, line)) {
+    if (line.empty())
+      continue;
+
+    std::vector<std::string> values = parseCSVLine(line);
+    if ((int)values.size() != (int)rel.fields.size()) {
+      std::cerr << "Registro con cantidad de campos incorrecta, ignorado."
+                << std::endl;
+      continue;
+    }
+
+    std::vector<std::string> trimmed_fields;
+    for (auto &v : values)
+      trimmed_fields.push_back(trim(v));
+
+    int current_relative_offset = 0;
+    std::vector<char> record;
+    std::ostringstream header_stream;
+
+    for (const auto &field : trimmed_fields) {
+      std::ostringstream off, len;
+      off << std::setw(3) << std::setfill('0') << current_relative_offset;
+      len << std::setw(3) << std::setfill('0') << field.size();
+      header_stream << off.str() << len.str();
+      current_relative_offset += field.size();
+    }
+
+    std::string header = header_stream.str();
+    record.insert(record.end(), header.begin(), header.end());
+
+    for (const auto &field : trimmed_fields) {
+      record.insert(record.end(), field.begin(), field.end());
+    }
+
+    if (!insert(relation_name, record)) {
+      std::cerr << "Error insertando registro en la relación." << std::endl;
+      return;
+    }
+
+    ++count;
+  }
+}
+
+void SGBD::insertNFromCSV(const std::string &relation_name,
+                          const std::string &csv_path, int N) {
+  Relation &rel = catalog.getRelation(relation_name);
+
+  if (rel.is_fixed) {
+    insertNFromCSV_fix(relation_name, csv_path, N);
+  } else {
+    insertNFromCSV_var(relation_name, csv_path, N);
+  }
+}
+
+void SGBD::deleteWhere_fix(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value, const std::string &op) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+
+  int field_idx = -1, offset = 0;
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    if (rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+    offset += rel.fields[i].size;
+  }
+
+  if (field_idx == -1) {
+    std::cout << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  int record_size = calculateRecordSize(rel.fields);
+  const std::string &field_type = rel.fields[field_idx].type;
+
+  for (int block_idx : rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+    int free_list_head =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
+    int record_size_header =
+        std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+    int active_records =
+        std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+
+    if (record_size_header != record_size) {
+      std::cout << "Record size no coincide, saltando bloque... (ERROR crítico)"
+                << std::endl;
+      continue;
+    }
+
+    std::unordered_set<int> deleted;
+    int current = free_list_head;
+    while (current != -1) {
+      deleted.insert(current);
+      int reg_offset = HEADER_SIZE_FIX + current * record_size;
+      int next = std::stoi(std::string(block.begin() + reg_offset,
+                                       block.begin() + reg_offset + 4));
+      current = next;
+    }
+
+    int total = active_records + deleted.size();
+    int pos = HEADER_SIZE_FIX;
+    bool modified = false;
+
+    for (int i = 0; i < total; ++i) {
+      if (deleted.count(i)) {
+        pos += record_size;
+        continue;
+      }
+
+      std::string field_val(block.begin() + pos + offset,
+                            block.begin() + pos + offset +
+                                rel.fields[field_idx].size);
+      field_val = trim(field_val);
+
+      bool match = false;
+
+      if (field_type == "int") {
+        int field_num, value_num;
+        if (!stringToInt(field_val, field_num) ||
+            !stringToInt(value, value_num)) {
+          pos += record_size;
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+      } else if (field_type == "float") {
+        float field_num, value_num;
+        if (!stringToFloat(field_val, field_num) ||
+            !stringToFloat(value, value_num)) {
+          pos += record_size;
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+      } else if (field_type == "string") {
+        match = compareValues(op, field_val, value);
+      } else {
+        std::cout << "Tipo no soportado: " << field_type << std::endl;
+        pos += record_size;
+        continue;
+      }
+
+      if (match) {
+        int reg_offset = HEADER_SIZE_FIX + i * record_size;
+
+        // escribir el antiguo free_list_head como "next" del nuevo eliminado
+        std::string next_str = intTo4CharStr(free_list_head);
+        std::copy(next_str.begin(), next_str.end(), block.begin() + reg_offset);
+
+        // actualizar el free_list_head
+        free_list_head = i;
+        std::string head_str = intTo4CharStr(free_list_head);
+        std::copy(head_str.begin(), head_str.end(), block.begin());
+
+        // actualizar active_records
+        active_records--;
+        std::string new_active_str = intTo4CharStr(active_records);
+        std::copy(new_active_str.begin(), new_active_str.end(),
+                  block.begin() + 12);
+
+        modified = true;
+      }
+
+      pos += record_size;
+    }
+
+    if (modified) {
+      disk.writeBlockByIndex(block_idx, block);
+    }
+  }
+}
+
+void SGBD::deleteWhere_var(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value,
+                           const std::string &op) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+
+  int field_idx = -1;
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    if (rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+  }
+
+  if (field_idx == -1) {
+    std::cout << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  const std::string &field_type = rel.fields[field_idx].type;
+
+  for (int block_idx : rel.blocks) {
+    std::vector<char> block = disk.readBlockByIndex(block_idx);
+
+    int total_records = std::stoi(std::string(block.begin(), block.begin() + 4));
+    bool modified = false;
+
+    for (int i = 0; i < total_records; ++i) {
+      int entry_offset = 8 + i * 8;
+
+      int reg_offset = std::stoi(std::string(block.begin() + entry_offset,
+                                             block.begin() + entry_offset + 4));
+
+      if (reg_offset == -1) continue; 
+
+      int reg_start = reg_offset;
+
+      std::vector<std::pair<int, int>> campo_offsets;
+      for (size_t j = 0; j < rel.fields.size(); ++j) {
+        int local = reg_start + j * 6;
+
+        int off = std::stoi(std::string(block.begin() + local, block.begin() + local + 3));
+        int len = std::stoi(std::string(block.begin() + local + 3, block.begin() + local + 6));
+        campo_offsets.emplace_back(off, len);
+      }
+
+      int header_size = rel.fields.size() * 6;
+      int field_rel_offset = campo_offsets[field_idx].first;
+      int field_len = campo_offsets[field_idx].second;
+      int field_abs_offset = reg_start + header_size + field_rel_offset;
+
+      std::string field_val(block.begin() + field_abs_offset,
+                            block.begin() + field_abs_offset + field_len);
+      field_val = trim(field_val);
+
+      bool match = false;
+
+      if (field_type == "int") {
+        int field_num, value_num;
+        if (!stringToInt(field_val, field_num) || !stringToInt(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+      } else if (field_type == "float") {
+        float field_num, value_num;
+        if (!stringToFloat(field_val, field_num) || !stringToFloat(value, value_num)) {
+          continue;
+        }
+        match = compareValues(op, field_num, value_num);
+      } else if (field_type == "string") {
+        match = compareValues(op, field_val, value);
+      } else {
+        std::cout << "Tipo de campo no soportado: " << field_type << std::endl;
+        continue;
+      }
+
+      if (match) {
+        std::string minus_one = intTo4CharStr(-1);
+        std::copy(minus_one.begin(), minus_one.end(), block.begin() + entry_offset);
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      disk.writeBlockByIndex(block_idx, block);
+      compactBlock_var(block_idx);
+    }
+  }
+}
+
+void SGBD::deleteWhere(const std::string &relation_name,
+                       const std::string &field_name,
+                       const std::string &value,
+                       const std::string &op) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+
+  if (rel.is_fixed) {
+    deleteWhere_fix(relation_name, field_name, value, op);
+  } else {
+    deleteWhere_var(relation_name, field_name, value, op);
+  }
+}
+
+void SGBD::compactBlock_var(int block_idx) {
+  std::vector<char> old_block = disk.readBlockByIndex(block_idx);
+
+  int total_records = std::stoi(std::string(old_block.begin(), old_block.begin() + 4));
+
+  std::vector<std::vector<char>> valid_records;
+  std::vector<int> valid_sizes;
+
+  for (int i = 0; i < total_records; ++i) {
+    int entry_offset = 8 + i * 8;
+
+    int reg_offset = std::stoi(std::string(old_block.begin() + entry_offset,
+                                           old_block.begin() + entry_offset + 4));
+    int reg_size = std::stoi(std::string(old_block.begin() + entry_offset + 4,
+                                         old_block.begin() + entry_offset + 8));
+
+    if (reg_offset == -1) continue; // Registro eliminado
+
+    std::vector<char> registro(old_block.begin() + reg_offset,
+                               old_block.begin() + reg_offset + reg_size);
+    valid_records.push_back(registro);
+    valid_sizes.push_back(reg_size);
+  }
+
+  std::vector<char> new_block(disk.block_size, 0);
+  int new_num_records = valid_records.size();
+  int eof = disk.block_size;
+  int slot_ptr = 8;
+
+  for (size_t i = 0; i < valid_records.size(); ++i) {
+    const std::vector<char> &reg = valid_records[i];
+    int size = valid_sizes[i];
+    int new_offset = eof - size;
+
+    std::copy(reg.begin(), reg.end(), new_block.begin() + new_offset);
+
+    std::string offset_str = intTo4CharStr(new_offset);
+    std::string size_str = intTo4CharStr(size);
+
+    std::copy(offset_str.begin(), offset_str.end(), new_block.begin() + slot_ptr);
+    std::copy(size_str.begin(), size_str.end(), new_block.begin() + slot_ptr + 4);
+
+    slot_ptr += 8;
+    eof = new_offset;
+  }
+
+  std::string num_str = intTo4CharStr(new_num_records);
+  std::string eof_str = intTo4CharStr(eof);
+
+  std::copy(num_str.begin(), num_str.end(), new_block.begin());
+  std::copy(eof_str.begin(), eof_str.end(), new_block.begin() + 4);
+
+  disk.writeBlockByIndex(block_idx, new_block);
 }
