@@ -63,7 +63,7 @@ void Catalog::addRelation(const Relation &relation) {
 }
 
 void Catalog::load() {
-  std::vector<char> raw = disk.readBlock(0, 0, 0, 0, 1);
+  std::vector<char> raw = disk.readBlock(1);
   std::istringstream iss(std::string(raw.data(), raw.size()));
 
   std::string line;
@@ -78,16 +78,14 @@ void Catalog::load() {
 
     header >> rel.name >> mode >> num_fields;
 
-    if (rel.name.empty() || (mode != "fix" && mode != "var") ||
-        num_fields <= 0) {
+    if (rel.name.empty() || (mode != "fix" && mode != "var") || num_fields <= 0) {
       continue;
     }
 
     rel.is_fixed = (mode == "fix");
 
     for (int i = 0; i < num_fields; ++i) {
-      if (!std::getline(iss, line))
-        break;
+      if (!std::getline(iss, line)) break;
       std::istringstream field_line(line);
       Field f;
       field_line >> f.name >> f.type;
@@ -135,7 +133,7 @@ void Catalog::save() const {
   std::vector<char> block(disk.block_size, 0);
   std::memcpy(block.data(), content.data(),
               std::min(content.size(), block.size()));
-  disk.writeBlock(0, 0, 0, 0, 1, block);
+  disk.writeBlock(1, block);
 }
 
 void Catalog::print() const {

@@ -1,4 +1,5 @@
 #include "sgbd.h"
+#include "buffermanager.h"
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -19,7 +20,8 @@ static std::string trim(const std::string &s) {
   return s.substr(start, end - start);
 }
 
-SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
+SGBD::SGBD(Disk &disk_)
+    : disk(disk_), bitmap(disk_), catalog(disk_), bufferManager(disk_) {
   if (bitmap.load()) {
   } else {
     std::cout << "Bitmap no encontrado. Inicializando..." << std::endl;
@@ -27,7 +29,6 @@ SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
     bitmap.set(1, true);
     bitmap.save();
   }
-
   catalog.load();
 }
 
@@ -128,7 +129,9 @@ void SGBD::initializeBlockHeader_var(int block_idx) {
 
   std::copy(header_str.begin(), header_str.end(), block_data.begin());
 
-  disk.writeBlockByIndex(block_idx, block_data);
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
+  std::copy(block_data.begin(), block_data.end(), block.begin());
+  bufferManager.markDirty(block_idx);
 }
 
 void SGBD::initializeBlockHeader_fix(int block_idx, int record_size) {
@@ -144,11 +147,13 @@ void SGBD::initializeBlockHeader_fix(int block_idx, int record_size) {
 
   std::copy(header_str.begin(), header_str.end(), block_data.begin());
 
-  disk.writeBlockByIndex(block_idx, block_data);
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
+  std::copy(block_data.begin(), block_data.end(), block.begin());
+  bufferManager.markDirty(block_idx);
 }
 
 bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
-  std::vector<char> block = disk.readBlockByIndex(block_idx);
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
 
   int free_list_head = std::stoi(std::string(block.begin(), block.begin() + 4));
   int record_size =
@@ -191,13 +196,12 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
             block.begin() + final_offset + record_size, 0);
   std::copy(record.begin(), record.end(), block.begin() + final_offset);
 
-  disk.writeBlockByIndex(block_idx, block);
-
+  bufferManager.markDirty(block_idx);
   return true;
 }
 
 bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
-  std::vector<char> block = disk.readBlockByIndex(block_idx);
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
 
   int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
   int end_of_freespace =
@@ -232,7 +236,7 @@ bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
   std::copy(new_num.begin(), new_num.end(), block.begin());
   std::copy(new_eof.begin(), new_eof.end(), block.begin() + 4);
 
-  disk.writeBlockByIndex(block_idx, block);
+  bufferManager.markDirty(block_idx);
   return true;
 }
 
@@ -295,7 +299,7 @@ bool SGBD::insert_var(Relation &rel, const std::vector<char> &record) {
   }
 
   bitmap.set(new_block, true);
-  initializeBlockHeader_var(new_block); // La que inicializa bloques variables
+  initializeBlockHeader_var(new_block);
 
   if (!insertRecord_var(new_block, record)) {
     std::cerr << "Error insertando en bloque nuevo ERROR CRITICO" << std::endl;
@@ -307,6 +311,16 @@ bool SGBD::insert_var(Relation &rel, const std::vector<char> &record) {
   catalog.save();
 
   return true;
+}
+
+bool SGBD::insert(const std::string &relation_name,
+                  const std::vector<char> &record) {
+  Relation &rel = catalog.getRelation(relation_name);
+  if (rel.is_fixed) {
+    return insert_fix(rel, record);
+  } else {
+    return insert_var(rel, record);
+  }
 }
 
 void SGBD::printRelation_fix(const std::string &relation_name) {
@@ -345,7 +359,7 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
   std::cout << separator << std::endl;
 
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> block = bufferManager.getBlock(block_idx);
 
     int free_list_head_header =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -414,7 +428,7 @@ void SGBD::printRelation_var(const std::string &relation_name) {
 
   // PRIMERA PASADA: Calcular tamaños máximos de cada columna
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> block = bufferManager.getBlock(block_idx);
     int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
     int metadata_start = HEADER_SIZE_VAR;
 
@@ -465,7 +479,7 @@ void SGBD::printRelation_var(const std::string &relation_name) {
 
   // SEGUNDA PASADA: Imprimir datos
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> block = bufferManager.getBlock(block_idx);
     int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
     int metadata_start = HEADER_SIZE_VAR;
 
@@ -723,16 +737,6 @@ void SGBD::printRelation(const std::string &relation_name) {
   }
 }
 
-bool SGBD::insert(const std::string &relation_name,
-                  const std::vector<char> &record) {
-  Relation &rel = catalog.getRelation(relation_name);
-  if (rel.is_fixed) {
-    return insert_fix(rel, record);
-  } else {
-    return insert_var(rel, record);
-  }
-}
-
 bool compareValues(const std::string &op, int v1, int v2) {
   if (op == "==")
     return v1 == v2;
@@ -842,7 +846,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
   const std::string &field_type = input_rel.fields[field_idx].type;
 
   for (int block_idx : input_rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> block = bufferManager.getBlock(block_idx);
 
     int free_list_head =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -960,7 +964,7 @@ void SGBD::selectWhere_var(const std::string &relation_name,
   const std::string &field_type = input_rel.fields[field_idx].type;
 
   for (int block_idx : input_rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> block = bufferManager.getBlock(block_idx);
 
     int total_records =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -974,7 +978,7 @@ void SGBD::selectWhere_var(const std::string &relation_name,
                                            block.begin() + entry_offset + 8));
 
       if (reg_offset == -1)
-        continue; // Registro eliminado
+        continue;
 
       int reg_start = reg_offset;
 
@@ -1061,7 +1065,7 @@ void SGBD::printRelBlockInfo(const std::string &relation_name) {
   std::cout << "\nBloques de la relación '" << rel.name << "':\n";
 
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
 
     int used_bytes = 0;
 
@@ -1254,7 +1258,7 @@ void SGBD::printDiskCapacityInfo() {
     for (int block_idx : rel.blocks) {
       data_blocks++;
 
-      std::vector<char> block = disk.readBlockByIndex(block_idx);
+      std::vector<char> block = bufferManager.getBlock(block_idx);
 
       if (rel.is_fixed) {
         int record_size =
@@ -1473,7 +1477,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
   const std::string &field_type = rel.fields[field_idx].type;
 
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
 
     int free_list_head =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -1564,7 +1568,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
     }
 
     if (modified) {
-      disk.writeBlockByIndex(block_idx, block);
+      bufferManager.markDirty(block_idx);
       std::cout << "Ubicacion del registro eliminado" << std::endl;
       disk.printBlockPosition(block_idx);
     }
@@ -1573,8 +1577,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 
 void SGBD::deleteWhere_var(const std::string &relation_name,
                            const std::string &field_name,
-                           const std::string &value,
-                           const std::string &op) {
+                           const std::string &value, const std::string &op) {
   if (!catalog.hasRelation(relation_name)) {
     std::cout << "Relación no encontrada: " << relation_name << std::endl;
     return;
@@ -1598,9 +1601,10 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
   const std::string &field_type = rel.fields[field_idx].type;
 
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = disk.readBlockByIndex(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
 
-    int total_records = std::stoi(std::string(block.begin(), block.begin() + 4));
+    int total_records =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
     bool modified = false;
 
     for (int i = 0; i < total_records; ++i) {
@@ -1609,7 +1613,8 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
       int reg_offset = std::stoi(std::string(block.begin() + entry_offset,
                                              block.begin() + entry_offset + 4));
 
-      if (reg_offset == -1) continue; 
+      if (reg_offset == -1)
+        continue;
 
       int reg_start = reg_offset;
 
@@ -1617,8 +1622,10 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
       for (size_t j = 0; j < rel.fields.size(); ++j) {
         int local = reg_start + j * 6;
 
-        int off = std::stoi(std::string(block.begin() + local, block.begin() + local + 3));
-        int len = std::stoi(std::string(block.begin() + local + 3, block.begin() + local + 6));
+        int off = std::stoi(
+            std::string(block.begin() + local, block.begin() + local + 3));
+        int len = std::stoi(
+            std::string(block.begin() + local + 3, block.begin() + local + 6));
         campo_offsets.emplace_back(off, len);
       }
 
@@ -1635,13 +1642,15 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
 
       if (field_type == "int") {
         int field_num, value_num;
-        if (!stringToInt(field_val, field_num) || !stringToInt(value, value_num)) {
+        if (!stringToInt(field_val, field_num) ||
+            !stringToInt(value, value_num)) {
           continue;
         }
         match = compareValues(op, field_num, value_num);
       } else if (field_type == "float") {
         float field_num, value_num;
-        if (!stringToFloat(field_val, field_num) || !stringToFloat(value, value_num)) {
+        if (!stringToFloat(field_val, field_num) ||
+            !stringToFloat(value, value_num)) {
           continue;
         }
         match = compareValues(op, field_num, value_num);
@@ -1654,21 +1663,21 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
 
       if (match) {
         std::string minus_one = intTo4CharStr(-1);
-        std::copy(minus_one.begin(), minus_one.end(), block.begin() + entry_offset);
+        std::copy(minus_one.begin(), minus_one.end(),
+                  block.begin() + entry_offset);
         modified = true;
       }
     }
 
     if (modified) {
-      disk.writeBlockByIndex(block_idx, block);
+      bufferManager.markDirty(block_idx);
       compactBlock_var(block_idx);
     }
   }
 }
 
 void SGBD::deleteWhere(const std::string &relation_name,
-                       const std::string &field_name,
-                       const std::string &value,
+                       const std::string &field_name, const std::string &value,
                        const std::string &op) {
   if (!catalog.hasRelation(relation_name)) {
     std::cout << "Relación no encontrada: " << relation_name << std::endl;
@@ -1685,9 +1694,9 @@ void SGBD::deleteWhere(const std::string &relation_name,
 }
 
 void SGBD::compactBlock_var(int block_idx) {
-  std::vector<char> old_block = disk.readBlockByIndex(block_idx);
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
 
-  int total_records = std::stoi(std::string(old_block.begin(), old_block.begin() + 4));
+  int total_records = std::stoi(std::string(block.begin(), block.begin() + 4));
 
   std::vector<std::vector<char>> valid_records;
   std::vector<int> valid_sizes;
@@ -1695,22 +1704,24 @@ void SGBD::compactBlock_var(int block_idx) {
   for (int i = 0; i < total_records; ++i) {
     int entry_offset = 8 + i * 8;
 
-    int reg_offset = std::stoi(std::string(old_block.begin() + entry_offset,
-                                           old_block.begin() + entry_offset + 4));
-    int reg_size = std::stoi(std::string(old_block.begin() + entry_offset + 4,
-                                         old_block.begin() + entry_offset + 8));
+    int reg_offset = std::stoi(std::string(block.begin() + entry_offset,
+                                           block.begin() + entry_offset + 4));
+    int reg_size = std::stoi(std::string(block.begin() + entry_offset + 4,
+                                         block.begin() + entry_offset + 8));
 
-    if (reg_offset == -1) continue; // Registro eliminado
+    if (reg_offset == -1)
+      continue;
 
-    std::vector<char> registro(old_block.begin() + reg_offset,
-                               old_block.begin() + reg_offset + reg_size);
+    std::vector<char> registro(block.begin() + reg_offset,
+                               block.begin() + reg_offset + reg_size);
     valid_records.push_back(registro);
     valid_sizes.push_back(reg_size);
   }
 
-  std::vector<char> new_block(disk.block_size, 0);
+  std::fill(block.begin(), block.end(), 0);
+
   int new_num_records = valid_records.size();
-  int eof = disk.block_size;
+  int eof = block.size();
   int slot_ptr = 8;
 
   for (size_t i = 0; i < valid_records.size(); ++i) {
@@ -1718,13 +1729,13 @@ void SGBD::compactBlock_var(int block_idx) {
     int size = valid_sizes[i];
     int new_offset = eof - size;
 
-    std::copy(reg.begin(), reg.end(), new_block.begin() + new_offset);
+    std::copy(reg.begin(), reg.end(), block.begin() + new_offset);
 
     std::string offset_str = intTo4CharStr(new_offset);
     std::string size_str = intTo4CharStr(size);
 
-    std::copy(offset_str.begin(), offset_str.end(), new_block.begin() + slot_ptr);
-    std::copy(size_str.begin(), size_str.end(), new_block.begin() + slot_ptr + 4);
+    std::copy(offset_str.begin(), offset_str.end(), block.begin() + slot_ptr);
+    std::copy(size_str.begin(), size_str.end(), block.begin() + slot_ptr + 4);
 
     slot_ptr += 8;
     eof = new_offset;
@@ -1733,8 +1744,8 @@ void SGBD::compactBlock_var(int block_idx) {
   std::string num_str = intTo4CharStr(new_num_records);
   std::string eof_str = intTo4CharStr(eof);
 
-  std::copy(num_str.begin(), num_str.end(), new_block.begin());
-  std::copy(eof_str.begin(), eof_str.end(), new_block.begin() + 4);
+  std::copy(num_str.begin(), num_str.end(), block.begin());
+  std::copy(eof_str.begin(), eof_str.end(), block.begin() + 4);
 
-  disk.writeBlockByIndex(block_idx, new_block);
+  bufferManager.markDirty(block_idx);
 }

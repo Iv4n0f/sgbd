@@ -3,12 +3,11 @@
 #include <string>
 #include <vector>
 
-struct BlockPos {
+struct SectorPos {
   int plato;
   int superficie;
   int pista;
   int sector;
-  int bloque;
 };
 
 class Disk {
@@ -19,28 +18,32 @@ public:
   int num_platos;
   int num_pistas;
   int num_sectores;
+  int sector_size;
+  int sectors_per_block;
   int block_size;
-  int blocks_per_sector;
   static constexpr int num_superficies = 2;
 
   struct DiskConfig {
     int platos;
     int pistas;
     int sectores;
-    int block_size;
-    int blocks_per_sector;
+    int sector_size;
+    int sectors_per_block;
 
     bool operator==(const DiskConfig &other) const {
       return platos == other.platos && pistas == other.pistas &&
-             sectores == other.sectores && block_size == other.block_size &&
-             blocks_per_sector == other.blocks_per_sector;
+             sectores == other.sectores && sector_size == other.sector_size &&
+             sectors_per_block == other.sectors_per_block;
     }
 
-    bool operator!=(const DiskConfig &other) const { return !(*this == other); }
+    bool operator!=(const DiskConfig &other) const {
+      return !(*this == other);
+    }
   };
 
   DiskConfig disk_config;
 
+  // Configuracion y estructura
   bool loadConfig(const std::string &path, DiskConfig &cfg);
   void saveConfig(const std::string &path, const DiskConfig &cfg);
   bool configChanged(const DiskConfig &a, const DiskConfig &b);
@@ -48,15 +51,13 @@ public:
   Disk(const std::string &root, const std::string &config);
   void createStructure();
 
-  std::vector<char> readBlock(int plato, int superficie, int pista, int sector,
-                              int bloque);
-  void writeBlock(int plato, int superficie, int pista, int sector, int bloque,
-                  const std::vector<char> &data);
+  // Acceso a bloques logicos
+  std::vector<char> readBlock(int block_idx);
+  void writeBlock(int block_idx, const std::vector<char> &data);
 
-  BlockPos blockPosFromIndex(int idx);
-  void printBlockPosition(int idx);
-  std::string getBlockPosition(int idx);
-  std::vector<char> readBlockByIndex(int idx);
-  void writeBlockByIndex(int idx, const std::vector<char> &data);
+  // Utilidades
+  SectorPos sectorStartOfBlock(int block_idx);
+  void printBlockPosition(int block_idx);
+  std::string getBlockPosition(int block_idx);
   void printDiskInfo() const;
 };

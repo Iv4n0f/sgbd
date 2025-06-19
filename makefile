@@ -5,7 +5,7 @@ SRCS = $(wildcard *.cpp)
 OBJS = $(SRCS:.cpp=.o)
 
 CC = g++
-CFLAGS = -Wall -O2
+CFLAGS = -Wall -Wextra -g
 
 all: $(TARGET)
 	@./$(TARGET)

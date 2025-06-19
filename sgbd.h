@@ -2,6 +2,7 @@
 
 #include "bitmap.h"
 #include "catalog.h"
+#include "buffermanager.h"
 #include "disk.h"
 #include <iostream>
 
@@ -13,6 +14,7 @@ public:
   Disk &disk;
   Bitmap bitmap;
   Catalog catalog;
+  BufferManager bufferManager;
 
   SGBD(Disk &disk_);
 
@@ -83,11 +85,4 @@ public:
 
   void printRelationSchema(const std::string &relation_name);
   void printDiskCapacityInfo();
-
-  // TODO: eliminar registros con logica similar a a where y actualizando
-  // headers de cada relacion
-
-  // TODO: mostrar capacidad de sector con datos (recibe bloque y muestra la
-  // capacidad de cada uno de lo bloques de ese sector y del mismo sector en
-  // total
 };

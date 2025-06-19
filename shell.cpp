@@ -45,6 +45,7 @@ void Shell::run() {
   }
   sgbd.catalog.save();
   sgbd.bitmap.save();
+  sgbd.bufferManager.flushAll();
   std::cout << "Saliendo del sistema..." << std::endl;
 }
 
@@ -117,6 +118,8 @@ bool Shell::handleCommand(const std::string &line) {
     std::string relation_name = tokens[1];
     std::vector<std::string> values(tokens.begin() + 2, tokens.end());
     sgbd.insertFromShell(relation_name, values);
+  } else if (cmd == "buffer_status") {
+    sgbd.bufferManager.printStatus();
   } else {
     std::cout << "Comando no reconocido." << std::endl;
   }
