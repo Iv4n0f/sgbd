@@ -154,6 +154,7 @@ void SGBD::initializeBlockHeader_fix(int block_idx, int record_size) {
 
 bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   std::vector<char> &block = bufferManager.getBlock(block_idx);
+  bufferManager.pin(block_idx);
 
   int free_list_head = std::stoi(std::string(block.begin(), block.begin() + 4));
   int record_size =
@@ -164,10 +165,12 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
 
   if (record.size() != (size_t)record_size) {
     std::cerr << "Error: tamaño del registro no coincide" << std::endl;
+    bufferManager.unpin(block_idx);
     return false;
   }
 
   if (active_records >= capacity && free_list_head == -1) {
+    bufferManager.unpin(block_idx);
     return false;
   }
 
@@ -197,11 +200,13 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   std::copy(record.begin(), record.end(), block.begin() + final_offset);
 
   bufferManager.markDirty(block_idx);
+  bufferManager.unpin(block_idx);
   return true;
 }
 
 bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
   std::vector<char> &block = bufferManager.getBlock(block_idx);
+  bufferManager.pin(block_idx);
 
   int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
   int end_of_freespace =
@@ -212,7 +217,8 @@ bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
   int slot_table_end = 8 + num_records * 8;
 
   if (end_of_freespace - total_required < slot_table_end) {
-    return false; // no hay espacio suficiente
+    bufferManager.unpin(block_idx);
+    return false; 
   }
 
   int new_offset = end_of_freespace - record_size;
@@ -237,6 +243,7 @@ bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
   std::copy(new_eof.begin(), new_eof.end(), block.begin() + 4);
 
   bufferManager.markDirty(block_idx);
+  bufferManager.unpin(block_idx);
   return true;
 }
 
@@ -359,7 +366,8 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
   std::cout << separator << std::endl;
 
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = bufferManager.getBlock(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int free_list_head_header =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -371,6 +379,7 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
     if (record_size_header != record_size) {
       std::cout << "Error: tamaño de registro inconsistente en bloque "
                 << block_idx << std::endl;
+      bufferManager.unpin(block_idx);
       continue;
     }
 
@@ -403,6 +412,7 @@ void SGBD::printRelation_fix(const std::string &relation_name) {
       }
       offset += record_size;
     }
+    bufferManager.unpin(block_idx);
   }
 
   std::cout << separator << std::endl;
@@ -428,7 +438,8 @@ void SGBD::printRelation_var(const std::string &relation_name) {
 
   // PRIMERA PASADA: Calcular tamaños máximos de cada columna
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = bufferManager.getBlock(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
     int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
     int metadata_start = HEADER_SIZE_VAR;
 
@@ -459,6 +470,7 @@ void SGBD::printRelation_var(const std::string &relation_name) {
         column_widths[j] = std::max(column_widths[j], (int)field_data.size());
       }
     }
+    bufferManager.unpin(block_idx);
   }
 
   // Imprimir encabezado
@@ -479,7 +491,8 @@ void SGBD::printRelation_var(const std::string &relation_name) {
 
   // SEGUNDA PASADA: Imprimir datos
   for (int block_idx : rel.blocks) {
-    std::vector<char> block = bufferManager.getBlock(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
     int num_records = std::stoi(std::string(block.begin(), block.begin() + 4));
     int metadata_start = HEADER_SIZE_VAR;
 
@@ -518,6 +531,7 @@ void SGBD::printRelation_var(const std::string &relation_name) {
       }
       std::cout << " |" << std::endl;
     }
+    bufferManager.unpin(block_idx);
   }
 
   std::cout << separator << std::endl;
@@ -846,7 +860,8 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
   const std::string &field_type = input_rel.fields[field_idx].type;
 
   for (int block_idx : input_rel.blocks) {
-    std::vector<char> block = bufferManager.getBlock(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int free_list_head =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -858,6 +873,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
     if (record_size_header != record_size) {
       std::cout << "Record size no coincide, saltando bloque ... ERROR critico"
                 << std::endl;
+      bufferManager.unpin(block_idx);
       continue;
     }
 
@@ -922,6 +938,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
 
       pos += record_size;
     }
+    bufferManager.unpin(block_idx);
   }
 
   printRelation(output_name);
@@ -964,7 +981,8 @@ void SGBD::selectWhere_var(const std::string &relation_name,
   const std::string &field_type = input_rel.fields[field_idx].type;
 
   for (int block_idx : input_rel.blocks) {
-    std::vector<char> block = bufferManager.getBlock(block_idx);
+    std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int total_records =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -1034,6 +1052,7 @@ void SGBD::selectWhere_var(const std::string &relation_name,
         insert(output_name, registro);
       }
     }
+    bufferManager.unpin(block_idx);
   }
 
   printRelation(output_name);
@@ -1066,6 +1085,7 @@ void SGBD::printRelBlockInfo(const std::string &relation_name) {
 
   for (int block_idx : rel.blocks) {
     std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int used_bytes = 0;
 
@@ -1088,6 +1108,7 @@ void SGBD::printRelBlockInfo(const std::string &relation_name) {
               << " | Posición física: " << disk.getBlockPosition(block_idx)
               << " | Bytes ocupados: " << used_bytes << " / " << disk.block_size
               << '\n';
+    bufferManager.unpin(block_idx);
   }
 
   std::cout << std::endl;
@@ -1258,7 +1279,8 @@ void SGBD::printDiskCapacityInfo() {
     for (int block_idx : rel.blocks) {
       data_blocks++;
 
-      std::vector<char> block = bufferManager.getBlock(block_idx);
+      std::vector<char> &block = bufferManager.getBlock(block_idx);
+      bufferManager.pin(block_idx);
 
       if (rel.is_fixed) {
         int record_size =
@@ -1277,6 +1299,7 @@ void SGBD::printDiskCapacityInfo() {
         bytes_used_in_data +=
             used_data_bytes + HEADER_SIZE_VAR + 8 * total_records;
       }
+      bufferManager.unpin(block_idx);
     }
   }
 
@@ -1478,6 +1501,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 
   for (int block_idx : rel.blocks) {
     std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int free_list_head =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -1489,6 +1513,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
     if (record_size_header != record_size) {
       std::cout << "Record size no coincide, saltando bloque... (ERROR crítico)"
                 << std::endl;
+      bufferManager.unpin(block_idx);
       continue;
     }
 
@@ -1572,6 +1597,7 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
       std::cout << "Ubicacion del registro eliminado" << std::endl;
       disk.printBlockPosition(block_idx);
     }
+    bufferManager.unpin(block_idx);
   }
 }
 
@@ -1602,6 +1628,7 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
 
   for (int block_idx : rel.blocks) {
     std::vector<char> &block = bufferManager.getBlock(block_idx);
+    bufferManager.pin(block_idx);
 
     int total_records =
         std::stoi(std::string(block.begin(), block.begin() + 4));
@@ -1673,6 +1700,7 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
       bufferManager.markDirty(block_idx);
       compactBlock_var(block_idx);
     }
+    bufferManager.unpin(block_idx);
   }
 }
 
@@ -1695,6 +1723,7 @@ void SGBD::deleteWhere(const std::string &relation_name,
 
 void SGBD::compactBlock_var(int block_idx) {
   std::vector<char> &block = bufferManager.getBlock(block_idx);
+  bufferManager.pin(block_idx);
 
   int total_records = std::stoi(std::string(block.begin(), block.begin() + 4));
 
@@ -1748,4 +1777,5 @@ void SGBD::compactBlock_var(int block_idx) {
   std::copy(eof_str.begin(), eof_str.end(), block.begin() + 4);
 
   bufferManager.markDirty(block_idx);
+  bufferManager.unpin(block_idx);
 }

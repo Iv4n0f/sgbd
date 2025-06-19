@@ -10,6 +10,7 @@ struct Frame {
   std::vector<char> data;
   bool dirty;
   int time;
+  int pin_count;
 };
 
 class BufferManager {
@@ -17,6 +18,8 @@ public:
   BufferManager(Disk &disk, int frame_count = 8);
   std::vector<char> &getBlock(int block_id);
   void markDirty(int block_id);
+  void pin(int block_id);
+  void unpin(int block_id);
   void flushBlock(int block_id);
   void flushAll();
   void printStatus() const;
