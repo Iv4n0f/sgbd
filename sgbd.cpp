@@ -1565,6 +1565,8 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 
     if (modified) {
       disk.writeBlockByIndex(block_idx, block);
+      std::cout << "Ubicacion del registro eliminado" << std::endl;
+      disk.printBlockPosition(block_idx);
     }
   }
 }
