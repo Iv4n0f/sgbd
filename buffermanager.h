@@ -15,7 +15,7 @@ struct Frame {
 
 class BufferManager {
 public:
-  BufferManager(Disk &disk, int frame_count = 8);
+  BufferManager(Disk &disk, int frame_count = 3);
   std::vector<char> &getBlock(int block_id);
   void markDirty(int block_id);
   void pin(int block_id);

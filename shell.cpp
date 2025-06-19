@@ -120,7 +120,17 @@ bool Shell::handleCommand(const std::string &line) {
     sgbd.insertFromShell(relation_name, values);
   } else if (cmd == "buffer_status") {
     sgbd.bufferManager.printStatus();
-  } else {
+  } else if (cmd == "print_block" && tokens.size() == 2) {
+    sgbd.printBlock(std::stoi(tokens[1]));
+  } else if (cmd == "pin" && tokens.size() == 2) {
+    sgbd.bufferManager.pin(std::stoi(tokens[1]));
+  } else if (cmd == "unpin" && tokens.size() == 2) {
+    sgbd.bufferManager.unpin(std::stoi(tokens[1]));
+  } else if (cmd == "request" && tokens.size() == 2) {
+    sgbd.bufferManager.getBlock(std::stoi(tokens[1]));
+  } else if (cmd == "dirty" && tokens.size() == 2) {
+    sgbd.bufferManager.markDirty(std::stoi(tokens[1]));
+  }else {
     std::cout << "Comando no reconocido." << std::endl;
   }
 

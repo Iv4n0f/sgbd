@@ -111,24 +111,33 @@ void BufferManager::loadBlock(int block_id, int frame_index) {
 
 void BufferManager::printStatus() const {
   std::cout << "=== Estado del Buffer Manager ===\n";
-  std::cout << std::left
-            << std::setw(8)  << "Índice"
-            << std::setw(10) << "Bloque"
-            << std::setw(8)  << "Dirty"
-            << std::setw(10) << "Tiempo"
-            << std::setw(10) << "PinCount"
-            << "\n";
 
-  std::cout << std::string(46, '-') << "\n";
+  const int w_idx    = 8;
+  const int w_block  = 10;
+  const int w_dirty  = 8;
+  const int w_time   = 10;
+  const int w_pincnt = 10;
+
+  std::cout << std::left
+            << std::setw(w_idx)    << "Índice"
+            << std::setw(w_block)  << "Bloque"
+            << std::setw(w_dirty)  << "Dirty"
+            << std::right
+            << std::setw(w_time)   << "Tiempo"
+            << std::setw(w_pincnt) << "PinCount"
+            << '\n';
+
+  std::cout << std::string(w_idx + w_block + w_dirty + w_time + w_pincnt, '-') << "\n";
 
   for (int i = 0; i < frame_count; ++i) {
     const Frame &f = frames[i];
     std::cout << std::left
-              << std::setw(8)  << i
-              << std::setw(10) << f.block_id
-              << std::setw(8)  << (f.dirty ? "Sí" : "No")
-              << std::setw(10) << f.time
-              << std::setw(10) << f.pin_count
-              << "\n";
+              << std::setw(w_idx)    << i
+              << std::setw(w_block)  << f.block_id
+              << std::setw(w_dirty)  << (f.dirty ? "Sí" : "No")
+              << std::right
+              << std::setw(w_time)   << f.time
+              << std::setw(w_pincnt) << f.pin_count
+              << '\n';
   }
 }

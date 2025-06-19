@@ -83,6 +83,7 @@ public:
                        const std::string &op);
   void compactBlock_var(int block_idx);
 
+  void printBlock(int block_idx);
   void printRelationSchema(const std::string &relation_name);
   void printDiskCapacityInfo();
 };

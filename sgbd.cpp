@@ -1779,3 +1779,21 @@ void SGBD::compactBlock_var(int block_idx) {
   bufferManager.markDirty(block_idx);
   bufferManager.unpin(block_idx);
 }
+
+void SGBD::printBlock(int block_idx) {
+  std::vector<char> &block = bufferManager.getBlock(block_idx);
+  bufferManager.pin(block_idx);
+
+  std::cout << "Contenido del bloque " << block_idx << "\n";
+
+  const int bytes_per_line = 64;
+  for (size_t i = 0; i < block.size(); i += bytes_per_line) {
+    for (size_t j = 0; j < bytes_per_line && i + j < block.size(); ++j) {
+      char c = block[i + j];
+      std::cout << (std::isprint(static_cast<unsigned char>(c)) ? c : '.');
+    }
+    std::cout << '\n';
+  }
+
+  bufferManager.unpin(block_idx);
+}
