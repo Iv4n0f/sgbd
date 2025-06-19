@@ -1,11 +1,10 @@
 TARGET = main
 
 SRCS = $(wildcard *.cpp)
-
 OBJS = $(SRCS:.cpp=.o)
 
 CC = g++
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -MMD -MP
 
 all: $(TARGET)
 	@./$(TARGET)
@@ -16,5 +15,7 @@ $(TARGET): $(OBJS)
 %.o: %.cpp
 	$(CC) $(CFLAGS) -c $< -o $@
 
+-include $(OBJS:.o=.d)
+
 clean:
-	rm -f $(TARGET) *.o
+	rm -f $(TARGET) *.o *.d

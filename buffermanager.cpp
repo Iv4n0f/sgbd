@@ -119,7 +119,7 @@ void BufferManager::printStatus() const {
   const int w_pincnt = 10;
 
   std::cout << std::left
-            << std::setw(w_idx)    << "Índice"
+            << std::setw(w_idx)    << "Indice"
             << std::setw(w_block)  << "Bloque"
             << std::setw(w_dirty)  << "Dirty"
             << std::right
@@ -134,7 +134,7 @@ void BufferManager::printStatus() const {
     std::cout << std::left
               << std::setw(w_idx)    << i
               << std::setw(w_block)  << f.block_id
-              << std::setw(w_dirty)  << (f.dirty ? "Sí" : "No")
+              << std::setw(w_dirty)  << (f.dirty ? "Si" : "No")
               << std::right
               << std::setw(w_time)   << f.time
               << std::setw(w_pincnt) << f.pin_count
