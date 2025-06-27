@@ -5,6 +5,7 @@
 #include "buffermanager.h"
 #include "disk.h"
 #include <iostream>
+#include <memory>
 
 class SGBD {
 public:
@@ -14,7 +15,7 @@ public:
   Disk &disk;
   Bitmap bitmap;
   Catalog catalog;
-  BufferManager bufferManager;
+  std::unique_ptr<BufferManager> bufferManager;
 
   SGBD(Disk &disk_);
 

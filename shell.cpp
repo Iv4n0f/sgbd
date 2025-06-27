@@ -45,7 +45,7 @@ void Shell::run() {
   }
   sgbd.catalog.save();
   sgbd.bitmap.save();
-  sgbd.bufferManager.flushAll();
+  sgbd.bufferManager->flushAll();
   std::cout << "Saliendo del sistema..." << std::endl;
 }
 
@@ -119,20 +119,20 @@ bool Shell::handleCommand(const std::string &line) {
     std::vector<std::string> values(tokens.begin() + 2, tokens.end());
     sgbd.insertFromShell(relation_name, values);
   } else if (cmd == "buffer_status") {
-    sgbd.bufferManager.printStatus();
+    sgbd.bufferManager->printStatus();
   } else if (cmd == "print_block" && tokens.size() == 2) {
     sgbd.printBlock(std::stoi(tokens[1]));
   } else if (cmd == "pin" && tokens.size() == 2) {
-    sgbd.bufferManager.pin(std::stoi(tokens[1]));
+    sgbd.bufferManager->pin(std::stoi(tokens[1]));
   } else if (cmd == "unpin" && tokens.size() == 2) {
-    sgbd.bufferManager.unpin(std::stoi(tokens[1]));
+    sgbd.bufferManager->unpin(std::stoi(tokens[1]));
   } else if (cmd == "request" && tokens.size() == 2) {
-    sgbd.bufferManager.getBlock(std::stoi(tokens[1]));
+    sgbd.bufferManager->getBlock(std::stoi(tokens[1]));
   } else if (cmd == "dirty" && tokens.size() == 2) {
-    sgbd.bufferManager.markDirty(std::stoi(tokens[1]));
-  }else {
+    sgbd.bufferManager->markDirty(std::stoi(tokens[1]));
+  } else {
     std::cout << "Comando no reconocido." << std::endl;
   }
-
+  sgbd.bufferManager->printStatus();
   return true;
 }
