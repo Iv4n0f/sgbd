@@ -21,10 +21,12 @@ BufferManager::BufferManager(Disk &disk_, int frame_count_, const std::string &p
 }
 
 std::vector<char> &BufferManager::getBlock(int block_id) {
+  ++total_accesses;
   ++current_time;
 
   auto it = block_to_frame.find(block_id);
   if (it != block_to_frame.end()) {
+    ++cache_hits;
     int frame_idx = it->second;
     frames[frame_idx].time = current_time;
     if (replacement_policy == CLOCK) frames[frame_idx].ref_bit = true;
@@ -148,6 +150,7 @@ void BufferManager::printStatus() const {
     printStatusLRU();
   else
     printStatusClock();
+  printHitRate();
 }
 
 void BufferManager::printStatusLRU() const {
@@ -205,5 +208,18 @@ void BufferManager::printStatusClock() const {
       std::cout << "  <--- reloj";
 
     std::cout << '\n';
+  }
+}
+
+void BufferManager::printHitRate() const {
+  std::cout << "\n=== Estadísticas de Hitrate ===\n";
+  std::cout << "Accesos totales: " << total_accesses << "\n";
+  std::cout << "Hits de caché  : " << cache_hits << "\n";
+  if (total_accesses > 0) {
+    double hitrate = 100.0 * cache_hits / total_accesses;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Hitrate        : " << hitrate << "%\n";
+  } else {
+    std::cout << "Hitrate        : N/A (sin accesos)\n";
   }
 }

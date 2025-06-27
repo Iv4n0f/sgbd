@@ -28,6 +28,7 @@ public:
   void flushAll();
 
   void printStatus() const;
+  void printHitRate() const;
 
 private:
   Disk &disk;
@@ -35,6 +36,8 @@ private:
   int current_time;
   int clock_hand;
   ReplacementPolicy replacement_policy;
+  int total_accesses = 0;
+  int cache_hits = 0;
 
   std::vector<Frame> frames;
   std::unordered_map<int, int> block_to_frame;
