@@ -21,8 +21,7 @@ static std::string trim(const std::string &s) {
   return s.substr(start, end - start);
 }
 
-SGBD::SGBD(Disk &disk_)
-    : disk(disk_), bitmap(disk_), catalog(disk_) {
+SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
 
   std::string policy;
   int frame_count;
@@ -241,7 +240,7 @@ bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
 
   if (end_of_freespace - total_required < slot_table_end) {
     bufferManager->unpin(block_idx);
-    return false; 
+    return false;
   }
 
   int new_offset = end_of_freespace - record_size;
@@ -271,12 +270,6 @@ bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
 }
 
 bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
-  if (!rel.is_fixed) {
-    std::cerr << "La relación '" << rel.name << "' no es de registros fijos"
-              << std::endl;
-    return false;
-  }
-
   int record_size = calculateRecordSize(rel.fields);
   if ((int)record.size() > record_size) {
     std::cerr << "Registro demasiado grande para la relación" << std::endl;
@@ -310,12 +303,6 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
 }
 
 bool SGBD::insert_var(Relation &rel, const std::vector<char> &record) {
-  if (rel.is_fixed) {
-    std::cerr << "La relación '" << rel.name << "' no es de registros variables"
-              << std::endl;
-    return false;
-  }
-
   for (int block_idx : rel.blocks) {
     if (insertRecord_var(block_idx, record)) {
       return true;
@@ -850,18 +837,7 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
                            const std::string &field_name,
                            const std::string &value, const std::string &op,
                            const std::string &output_name) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &input_rel = catalog.getRelation(relation_name);
-  if (!input_rel.is_fixed) {
-    std::cout << "Solo se soportan relaciones de tamaño fijo, llamar a "
-                 "selectWhere_var()"
-              << std::endl;
-    return;
-  }
 
   int field_idx = -1, offset = 0;
   for (size_t i = 0; i < input_rel.fields.size(); ++i) {
@@ -975,17 +951,7 @@ void SGBD::selectWhere_var(const std::string &relation_name,
                            const std::string &field_name,
                            const std::string &value, const std::string &op,
                            const std::string &output_name) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &input_rel = catalog.getRelation(relation_name);
-  if (input_rel.is_fixed) {
-    std::cout << "La relación es de tamaño fijo. Llamar a selectWhere_fix()."
-              << std::endl;
-    return;
-  }
 
   int field_idx = -1;
   for (size_t i = 0; i < input_rel.fields.size(); ++i) {
@@ -1088,11 +1054,6 @@ void SGBD::selectWhere_var(const std::string &relation_name,
 void SGBD::selectWhere(const std::string &relation_name,
                        const std::string &field_name, const std::string &value,
                        const std::string &op, const std::string &output_name) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
 
   if (rel.is_fixed) {
@@ -1140,11 +1101,6 @@ void SGBD::printRelBlockInfo(const std::string &relation_name) {
 void SGBD::insertFromShell_fix(const std::string &relation_name,
                                const std::vector<std::string> &values) {
   Relation &rel = catalog.getRelation(relation_name);
-  if (!rel.is_fixed) {
-    std::cerr << "Error: la relación '" << relation_name
-              << "' no es de registros fijos." << std::endl;
-    return;
-  }
 
   if ((int)values.size() != (int)rel.fields.size()) {
     std::cerr << "Error: número de valores no coincide con el número de campos."
@@ -1198,11 +1154,6 @@ void SGBD::insertFromShell_fix(const std::string &relation_name,
 void SGBD::insertFromShell_var(const std::string &relation_name,
                                const std::vector<std::string> &values) {
   Relation &rel = catalog.getRelation(relation_name);
-  if (rel.is_fixed) {
-    std::cerr << "Error: la relación '" << relation_name
-              << "' no es de registros variables." << std::endl;
-    return;
-  }
 
   if ((int)values.size() != (int)rel.fields.size()) {
     std::cerr << "Error: número de valores no coincide con el número de campos."
@@ -1344,18 +1295,7 @@ void SGBD::printDiskCapacityInfo() {
 
 void SGBD::insertNFromCSV_fix(const std::string &relation_name,
                               const std::string &csv_path, int N) {
-
-  if (!catalog.hasRelation(relation_name)) {
-    std::cerr << "La relación '" << relation_name << "' no existe."
-              << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
-  if (!rel.is_fixed) {
-    std::cerr << "La relación no es de tamaño fijo." << std::endl;
-    return;
-  }
 
   std::ifstream file(csv_path);
   if (!file.is_open()) {
@@ -1410,17 +1350,7 @@ void SGBD::insertNFromCSV_fix(const std::string &relation_name,
 
 void SGBD::insertNFromCSV_var(const std::string &relation_name,
                               const std::string &csv_path, int N) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cerr << "La relación '" << relation_name << "' no existe."
-              << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
-  if (rel.is_fixed) {
-    std::cerr << "La relación no es de tamaño variable." << std::endl;
-    return;
-  }
 
   std::ifstream file(csv_path);
   if (!file.is_open()) {
@@ -1498,11 +1428,6 @@ void SGBD::insertNFromCSV(const std::string &relation_name,
 void SGBD::deleteWhere_fix(const std::string &relation_name,
                            const std::string &field_name,
                            const std::string &value, const std::string &op) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
 
   int field_idx = -1, offset = 0;
@@ -1627,11 +1552,6 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 void SGBD::deleteWhere_var(const std::string &relation_name,
                            const std::string &field_name,
                            const std::string &value, const std::string &op) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
 
   int field_idx = -1;
@@ -1730,11 +1650,6 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
 void SGBD::deleteWhere(const std::string &relation_name,
                        const std::string &field_name, const std::string &value,
                        const std::string &op) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
-
   const Relation &rel = catalog.getRelation(relation_name);
 
   if (rel.is_fixed) {
@@ -1819,4 +1734,236 @@ void SGBD::printBlock(int block_idx) {
   }
 
   bufferManager->unpin(block_idx);
+}
+
+void SGBD::modifyFromShell_fix(const std::string &relation_name,
+                               const std::string &field_name,
+                               const std::string &value,
+                               const std::vector<std::string> &new_values) {
+  Relation &rel = catalog.getRelation(relation_name);
+
+  if ((int)new_values.size() != (int)rel.fields.size()) {
+    std::cerr << "Error: número de valores no coincide con los campos."
+              << std::endl;
+    return;
+  }
+
+  int field_idx = -1, offset = 0;
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    if (rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+    offset += rel.fields[i].size;
+  }
+
+  if (field_idx == -1) {
+    std::cerr << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  int record_size = calculateRecordSize(rel.fields);
+
+  for (int block_idx : rel.blocks) {
+    std::vector<char> &block = bufferManager->getBlock(block_idx);
+    bufferManager->pin(block_idx);
+
+    int free_list_head =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
+    int record_size_header =
+        std::stoi(std::string(block.begin() + 4, block.begin() + 8));
+    int active_records =
+        std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+
+    if (record_size != record_size_header) {
+      std::cerr << "Record size no coincide, saltando bloque." << std::endl;
+      bufferManager->unpin(block_idx);
+      continue;
+    }
+
+    std::unordered_set<int> deleted;
+    int current = free_list_head;
+    while (current != -1) {
+      deleted.insert(current);
+      int reg_offset = HEADER_SIZE_FIX + current * record_size;
+      int next = std::stoi(std::string(block.begin() + reg_offset,
+                                       block.begin() + reg_offset + 4));
+      current = next;
+    }
+
+    int total = active_records + deleted.size();
+    int pos = HEADER_SIZE_FIX;
+
+    for (int i = 0; i < total; ++i) {
+      if (deleted.count(i)) {
+        pos += record_size;
+        continue;
+      }
+
+      std::string field_val(block.begin() + pos + offset,
+                            block.begin() + pos + offset +
+                                rel.fields[field_idx].size);
+      field_val = trim(field_val);
+
+      if (field_val == value) {
+        std::vector<char> new_record;
+        for (size_t j = 0; j < rel.fields.size(); ++j) {
+          int len = rel.fields[j].size;
+          const std::string &val = new_values[j];
+
+          if ((int)val.size() > len) {
+            std::cerr << "Error: valor '" << val
+                      << "' excede el tamaño del campo '" << rel.fields[j].name
+                      << "'." << std::endl;
+            bufferManager->unpin(block_idx);
+            return;
+          }
+
+          std::string padded = val + std::string(len - val.size(), ' ');
+          new_record.insert(new_record.end(), padded.begin(), padded.end());
+        }
+
+        std::copy(new_record.begin(), new_record.end(), block.begin() + pos);
+        bufferManager->markDirty(block_idx);
+        bufferManager->unpin(block_idx);
+
+        std::cout << "Registro modificado exitosamente." << std::endl;
+        return;
+      }
+
+      pos += record_size;
+    }
+
+    bufferManager->unpin(block_idx);
+  }
+
+  std::cout << "Registro no encontrado con valor '" << value << "' en campo '"
+            << field_name << "'." << std::endl;
+}
+
+void SGBD::modifyFromShell_var(const std::string &relation_name,
+                               const std::string &field_name,
+                               const std::string &value,
+                               const std::vector<std::string> &new_values) {
+  Relation &rel = catalog.getRelation(relation_name);
+
+  if ((int)new_values.size() != (int)rel.fields.size()) {
+    std::cerr << "Error: número de valores no coincide con los campos."
+              << std::endl;
+    return;
+  }
+
+  int field_idx = -1;
+  for (size_t i = 0; i < rel.fields.size(); ++i) {
+    if (rel.fields[i].name == field_name) {
+      field_idx = i;
+      break;
+    }
+  }
+
+  if (field_idx == -1) {
+    std::cerr << "Campo no encontrado: " << field_name << std::endl;
+    return;
+  }
+
+  for (int block_idx : rel.blocks) {
+    std::vector<char> &block = bufferManager->getBlock(block_idx);
+    bufferManager->pin(block_idx);
+
+    int total_records =
+        std::stoi(std::string(block.begin(), block.begin() + 4));
+
+    for (int i = 0; i < total_records; ++i) {
+      int entry_offset = 8 + i * 8;
+
+      int reg_offset = std::stoi(std::string(block.begin() + entry_offset,
+                                             block.begin() + entry_offset + 4));
+
+      if (reg_offset == -1)
+        continue;
+
+      int reg_start = reg_offset;
+
+      std::vector<std::pair<int, int>> campo_offsets;
+      for (size_t j = 0; j < rel.fields.size(); ++j) {
+        int local = reg_start + j * 6;
+        int off = std::stoi(
+            std::string(block.begin() + local, block.begin() + local + 3));
+        int len = std::stoi(
+            std::string(block.begin() + local + 3, block.begin() + local + 6));
+        campo_offsets.emplace_back(off, len);
+      }
+
+      int header_size = rel.fields.size() * 6;
+      int field_rel_offset = campo_offsets[field_idx].first;
+      int field_len = campo_offsets[field_idx].second;
+      int field_abs_offset = reg_start + header_size + field_rel_offset;
+
+      std::string field_val(block.begin() + field_abs_offset,
+                            block.begin() + field_abs_offset + field_len);
+      field_val = trim(field_val);
+
+      if (field_val == value) {
+        std::string neg1 = "-001";
+        std::copy(neg1.begin(), neg1.end(), block.begin() + entry_offset);
+        bufferManager->markDirty(block_idx);
+
+        compactBlock_var(block_idx);
+
+        std::vector<std::string> trimmed_fields;
+        for (const auto &v : new_values)
+          trimmed_fields.push_back(trim(v));
+
+        int current_relative_offset = 0;
+        std::vector<char> record;
+        std::ostringstream header_stream;
+
+        for (const auto &field : trimmed_fields) {
+          std::ostringstream off, len;
+          off << std::setw(3) << std::setfill('0') << current_relative_offset;
+          len << std::setw(3) << std::setfill('0') << field.size();
+          header_stream << off.str() << len.str();
+          current_relative_offset += field.size();
+        }
+
+        std::string header = header_stream.str();
+        record.insert(record.end(), header.begin(), header.end());
+
+        for (const auto &field : trimmed_fields) {
+          record.insert(record.end(), field.begin(), field.end());
+        }
+
+        if (!insert_var(rel, record)) {
+          std::cerr << "Error al insertar el nuevo registro modificado."
+                    << std::endl;
+        }
+
+        bufferManager->unpin(block_idx);
+        std::cout << "Registro modificado exitosamente." << std::endl;
+        return;
+      }
+    }
+
+    bufferManager->unpin(block_idx);
+  }
+
+  std::cout << "Registro no encontrado con valor '" << value << "' en campo '"
+            << field_name << "'." << std::endl;
+}
+void SGBD::modifyFromShell(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value,
+                           const std::vector<std::string> &new_values) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Relación no encontrada: " << relation_name << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+
+  if (rel.is_fixed) {
+    modifyFromShell_fix(relation_name, field_name, value, new_values);
+  } else {
+    modifyFromShell_var(relation_name, field_name, value, new_values);
+  }
 }

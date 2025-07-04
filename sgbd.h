@@ -1,8 +1,8 @@
 #pragma once
 
 #include "bitmap.h"
-#include "catalog.h"
 #include "buffermanager.h"
+#include "catalog.h"
 #include "disk.h"
 #include <iostream>
 #include <memory>
@@ -60,6 +60,7 @@ public:
                        const std::string &field_name, const std::string &value,
                        const std::string &op,
                        const std::string &output_name = "temp_result");
+
   void createOrReplaceRelationFromCSV_fix(const std::string &relation_name,
                                           const std::string &csv_path);
   void createOrReplaceRelationFromCSV_var(const std::string &relation_name,
@@ -83,6 +84,19 @@ public:
                        const std::string &field_name, const std::string &value,
                        const std::string &op);
   void compactBlock_var(int block_idx);
+
+  void modifyFromShell(const std::string &relation_name,
+                       const std::string &field_name, const std::string &value,
+                       const std::vector<std::string> &new_values);
+  void modifyFromShell_fix(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value,
+                           const std::vector<std::string> &new_values);
+
+  void modifyFromShell_var(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value,
+                           const std::vector<std::string> &new_values);
 
   void printBlock(int block_idx);
   void printRelationSchema(const std::string &relation_name);

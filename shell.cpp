@@ -130,6 +130,12 @@ bool Shell::handleCommand(const std::string &line) {
     sgbd.bufferManager->getBlock(std::stoi(tokens[1]));
   } else if (cmd == "dirty" && tokens.size() == 2) {
     sgbd.bufferManager->markDirty(std::stoi(tokens[1]));
+  } else if (cmd == "mod" && tokens.size() >= 5) {
+    std::string relation_name = tokens[1];
+    std::string field_name = tokens[2];
+    std::string value = tokens[3];
+    std::vector<std::string> new_values(tokens.begin() + 4, tokens.end());
+    sgbd.modifyFromShell(relation_name, field_name, value, new_values);
   } else {
     std::cout << "Comando no reconocido." << std::endl;
   }
