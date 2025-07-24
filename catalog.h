@@ -16,6 +16,8 @@ struct Relation {
   bool is_fixed;
   std::vector<Field> fields;
   std::vector<int> blocks;
+  int hash_index_block = -1;
+  int btree_index_block = -1;
 };
 
 class Catalog {

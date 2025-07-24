@@ -52,6 +52,16 @@ SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
   }
 
   catalog.load();
+
+  std::map<std::string, int> relation_to_block;
+  for (const auto& [name, rel] : catalog.getAllRelations()) {
+    if (rel.is_fixed && rel.hash_index_block != -1) {
+      relation_to_block[name] = rel.hash_index_block;
+    }
+  }
+  if (!relation_to_block.empty()) {
+    HashIndex::loadAllFromDisk(disk, relation_to_block);
+  }
 }
 
 std::vector<std::string> parseCSVLine(const std::string &line) {
@@ -94,23 +104,33 @@ void SGBD::createOrReplaceRelation(const std::string &name, bool is_fixed,
   rel.fields = fields;
 
   int block = bitmap.getFreeBlock();
-
   if (block == -1) {
     throw std::runtime_error("No hay bloques libres para la nueva relación");
   }
-
   bitmap.set(block, true);
 
   if (is_fixed) {
     int record_size = calculateRecordSize(fields);
     initializeBlockHeader_fix(block, record_size);
+
+    int key_size = fields[0].size;
+    int block_size = disk.block_size;
+    int entry_size = key_size + 4 + 4;
+    int overhead = 4 + 4;
+    int bucket_capacity = (block_size - overhead) / entry_size;
+
+    HashIndex::createForRelation(name, disk, bitmap, key_size, bucket_capacity);
+    const auto &idx = HashIndex::indices.at(name);
+    rel.hash_index_block = idx.getHeaderBlock();
+    rel.btree_index_block = -1;
   } else {
     initializeBlockHeader_var(block);
+    rel.hash_index_block = -1;
+    rel.btree_index_block = -1;
   }
 
   rel.blocks.push_back(block);
   catalog.addRelation(rel);
-
   bitmap.save();
   catalog.save();
 }
@@ -174,7 +194,7 @@ void SGBD::initializeBlockHeader_fix(int block_idx, int record_size) {
   bufferManager->markDirty(block_idx);
 }
 
-bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
+int SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   std::vector<char> &block = bufferManager->getBlock(block_idx);
   bufferManager->pin(block_idx);
 
@@ -188,12 +208,12 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
   if (record.size() != (size_t)record_size) {
     std::cerr << "Error: tamaño del registro no coincide" << std::endl;
     bufferManager->unpin(block_idx);
-    return false;
+    return -1;
   }
 
   if (active_records >= capacity && free_list_head == -1) {
     bufferManager->unpin(block_idx);
-    return false;
+    return -1;
   }
 
   int insert_pos;
@@ -223,7 +243,7 @@ bool SGBD::insertRecord_fix(int block_idx, const std::vector<char> &record) {
 
   bufferManager->markDirty(block_idx);
   bufferManager->unpin(block_idx);
-  return true;
+  return insert_pos;
 }
 
 bool SGBD::insertRecord_var(int block_idx, const std::vector<char> &record) {
@@ -276,8 +296,28 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
     return false;
   }
 
+  // Intentar primero en el último bloque
+  if (!rel.blocks.empty()) {
+    int last_block = rel.blocks.back();
+    int offset = insertRecord_fix(last_block, record);
+    if (offset != -1) {
+      // Actualizar índice hash
+      if (rel.hash_index_block != -1 && !rel.fields.empty()) {
+        std::string key(record.begin(), record.begin() + rel.fields[0].size);
+        HashIndex::indices[rel.name].insert(key, last_block, offset, disk, bitmap);
+      }
+      return true;
+    }
+  }
+
   for (int block_idx : rel.blocks) {
-    if (insertRecord_fix(block_idx, record)) {
+    int offset = insertRecord_fix(block_idx, record);
+    if (offset != -1) {
+      // Actualizar índice hash
+      if (rel.hash_index_block != -1 && !rel.fields.empty()) {
+        std::string key(record.begin(), record.begin() + rel.fields[0].size);
+        HashIndex::indices[rel.name].insert(key, block_idx, offset, disk, bitmap);
+      }
       return true;
     }
   }
@@ -290,7 +330,8 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
   bitmap.set(new_block, true);
   initializeBlockHeader_fix(new_block, record_size);
 
-  if (!insertRecord_fix(new_block, record)) {
+  int offset = insertRecord_fix(new_block, record);
+  if (offset == -1) {
     std::cerr << "Error insertando en bloque nuevo ERROR CRITICO" << std::endl;
     return false;
   }
@@ -299,10 +340,23 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
   bitmap.save();
   catalog.save();
 
+  // Actualizar índice hash
+  if (rel.hash_index_block != -1 && !rel.fields.empty()) {
+    std::string key(record.begin(), record.begin() + rel.fields[0].size);
+    HashIndex::indices[rel.name].insert(key, new_block, offset, disk, bitmap);
+  }
+
   return true;
 }
 
 bool SGBD::insert_var(Relation &rel, const std::vector<char> &record) {
+  if (!rel.blocks.empty()) {
+    int last_block = rel.blocks.back();
+    if (insertRecord_var(last_block, record)) {
+      return true;
+    }
+  }
+
   for (int block_idx : rel.blocks) {
     if (insertRecord_var(block_idx, record)) {
       return true;
@@ -716,9 +770,28 @@ void SGBD::createOrReplaceRelationFromCSV_var(const std::string &relation_name,
 bool SGBD::deleteRelation(const std::string &name) {
   if (catalog.hasRelation(name)) {
     const Relation &oldRel = catalog.getRelation(name);
+
+    // Liberar bloques de datos de la relación
     for (int block : oldRel.blocks) {
       bitmap.set(block, false);
     }
+
+    // Si la relación tiene índice hash, liberar sus bloques
+    if (oldRel.is_fixed && oldRel.hash_index_block != -1) {
+      auto it = HashIndex::indices.find(name);
+      if (it != HashIndex::indices.end()) {
+        HashIndex &idx = it->second;
+        // Liberar bloque de cabecera
+        bitmap.set(idx.header_block, false);
+        // Liberar bloques de buckets (puede haber repetidos, pero set es idempotente)
+        for (int block : idx.directory) {
+          bitmap.set(block, false);
+        }
+        // Eliminar el índice de memoria
+        HashIndex::indices.erase(it);
+      }
+    }
+
     bitmap.save();
     catalog.removeRelation(name);
     catalog.save();
@@ -854,8 +927,31 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
   }
 
   createOrReplaceRelation(output_name, true, input_rel.fields);
-
   int record_size = calculateRecordSize(input_rel.fields);
+
+  if (field_idx == 0 && op == "==" && input_rel.hash_index_block != -1) {
+    std::string value_formateado = value;
+    if ((int)value_formateado.size() < input_rel.fields[0].size)
+      value_formateado += std::string(input_rel.fields[0].size - value_formateado.size(), ' ');
+    else if ((int)value_formateado.size() > input_rel.fields[0].size)
+      value_formateado = value_formateado.substr(0, input_rel.fields[0].size);
+
+    auto refs = HashIndex::indices[input_rel.name].search(value_formateado);
+    for (auto [block_idx, offset] : refs) {
+      std::vector<char> &block = bufferManager->getBlock(block_idx);
+      bufferManager->pin(block_idx);
+      int reg_offset = HEADER_SIZE_FIX + offset * record_size;
+      std::vector<char> reg(block.begin() + reg_offset, block.begin() + reg_offset + record_size);
+      insert(output_name, reg);
+      bufferManager->unpin(block_idx);
+    }
+    printRelation(output_name);
+    if (output_name == "temp_result") {
+      deleteRelation(output_name);
+    }
+    return;
+  }
+
   const std::string &field_type = input_rel.fields[field_idx].type;
 
   for (int block_idx : input_rel.blocks) {
@@ -1447,6 +1543,45 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
   int record_size = calculateRecordSize(rel.fields);
   const std::string &field_type = rel.fields[field_idx].type;
 
+  if (field_idx == 0 && op == "==" && rel.hash_index_block != -1) {
+    std::string value_formateado = value;
+    if ((int)value_formateado.size() < rel.fields[0].size)
+      value_formateado += std::string(rel.fields[0].size - value_formateado.size(), ' ');
+    else if ((int)value_formateado.size() > rel.fields[0].size)
+      value_formateado = value_formateado.substr(0, rel.fields[0].size);
+
+    auto refs = HashIndex::indices[rel.name].search(value_formateado);
+    for (auto [block_idx, offset_logico] : refs) {
+      std::vector<char> &block = bufferManager->getBlock(block_idx);
+      bufferManager->pin(block_idx);
+
+      int reg_offset = HEADER_SIZE_FIX + offset_logico * record_size;
+
+      // Eliminar del índice hash
+      HashIndex::indices[rel.name].remove(value_formateado, block_idx, offset_logico);
+
+      // Eliminar físicamente el registro (igual que en el ciclo tradicional)
+      int free_list_head = std::stoi(std::string(block.begin(), block.begin() + 4));
+      std::string next_str = intTo4CharStr(free_list_head);
+      std::copy(next_str.begin(), next_str.end(), block.begin() + reg_offset);
+
+      free_list_head = offset_logico;
+      std::string head_str = intTo4CharStr(free_list_head);
+      std::copy(head_str.begin(), head_str.end(), block.begin());
+
+      int active_records = std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+      active_records--;
+      std::string new_active_str = intTo4CharStr(active_records);
+      std::copy(new_active_str.begin(), new_active_str.end(), block.begin() + 12);
+
+      bufferManager->markDirty(block_idx);
+      bufferManager->unpin(block_idx);
+      std::cout << "Ubicacion del registro eliminado" << std::endl;
+      disk.printBlockPosition(block_idx);
+    }
+    return;
+  }
+
   for (int block_idx : rel.blocks) {
     std::vector<char> &block = bufferManager->getBlock(block_idx);
     bufferManager->pin(block_idx);
@@ -1518,6 +1653,12 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 
       if (match) {
         int reg_offset = HEADER_SIZE_FIX + i * record_size;
+
+        // Eliminar del índice hash si corresponde
+        if (rel.hash_index_block != -1 && !rel.fields.empty()) {
+          std::string key(block.begin() + pos, block.begin() + pos + rel.fields[0].size);
+          HashIndex::indices[rel.name].remove(key, block_idx, i);
+        }
 
         // escribir el antiguo free_list_head como "next" del nuevo eliminado
         std::string next_str = intTo4CharStr(free_list_head);
@@ -1591,7 +1732,6 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
       std::vector<std::pair<int, int>> campo_offsets;
       for (size_t j = 0; j < rel.fields.size(); ++j) {
         int local = reg_start + j * 6;
-
         int off = std::stoi(
             std::string(block.begin() + local, block.begin() + local + 3));
         int len = std::stoi(
@@ -1739,7 +1879,8 @@ void SGBD::printBlock(int block_idx) {
 void SGBD::modifyFromShell_fix(const std::string &relation_name,
                                const std::string &field_name,
                                const std::string &value,
-                               const std::vector<std::string> &new_values) {
+                               const std::vector<std::string> &new_values)
+{
   Relation &rel = catalog.getRelation(relation_name);
 
   if ((int)new_values.size() != (int)rel.fields.size()) {
@@ -1763,6 +1904,63 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
   }
 
   int record_size = calculateRecordSize(rel.fields);
+
+  if (field_idx == 0 && rel.hash_index_block != -1) {
+    std::string value_formateado = value;
+    if ((int)value_formateado.size() < rel.fields[0].size)
+      value_formateado += std::string(rel.fields[0].size - value_formateado.size(), ' ');
+    else if ((int)value_formateado.size() > rel.fields[0].size)
+      value_formateado = value_formateado.substr(0, rel.fields[0].size);
+
+    auto refs = HashIndex::indices[rel.name].search(value_formateado);
+    bool found = false;
+    for (auto [block_idx, offset_logico] : refs) {
+      std::vector<char> &block = bufferManager->getBlock(block_idx);
+      bufferManager->pin(block_idx);
+
+      int reg_offset = HEADER_SIZE_FIX + offset_logico * record_size;
+
+      // Construir el nuevo registro
+      std::vector<char> new_record;
+      for (size_t j = 0; j < rel.fields.size(); ++j) {
+        int len = rel.fields[j].size;
+        const std::string &val = new_values[j];
+
+        if ((int)val.size() > len) {
+          std::cerr << "Error: valor '" << val
+                    << "' excede el tamaño del campo '" << rel.fields[j].name
+                    << "'." << std::endl;
+          bufferManager->unpin(block_idx);
+          return;
+        }
+
+        std::string padded = val + std::string(len - val.size(), ' ');
+        new_record.insert(new_record.end(), padded.begin(), padded.end());
+      }
+
+      // Actualizar el registro en el bloque
+      std::copy(new_record.begin(), new_record.end(), block.begin() + reg_offset);
+      bufferManager->markDirty(block_idx);
+      bufferManager->unpin(block_idx);
+
+      // Actualizar el índice hash si la clave cambió
+      std::string old_key = value_formateado;
+      std::string new_key(new_record.begin(), new_record.begin() + rel.fields[0].size);
+      if (old_key != new_key) {
+        HashIndex::indices[rel.name].remove(old_key, block_idx, offset_logico);
+        HashIndex::indices[rel.name].insert(new_key, block_idx, offset_logico, disk, bitmap);
+      }
+
+      found = true;
+    }
+    if (found) {
+      std::cout << "Registro modificado exitosamente." << std::endl;
+    } else {
+      std::cout << "Registro no encontrado con valor '" << value << "' en campo '"
+                << field_name << "'." << std::endl;
+    }
+    return;
+  }
 
   for (int block_idx : rel.blocks) {
     std::vector<char> &block = bufferManager->getBlock(block_idx);
@@ -1821,6 +2019,16 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
 
           std::string padded = val + std::string(len - val.size(), ' ');
           new_record.insert(new_record.end(), padded.begin(), padded.end());
+        }
+        
+        // Si la relación tiene índice hash y la clave primaria cambia, actualiza el índice
+        if (rel.hash_index_block != -1 && !rel.fields.empty()) {
+          std::string old_key(block.begin() + pos, block.begin() + pos + rel.fields[0].size);
+          std::string new_key(new_record.begin(), new_record.begin() + rel.fields[0].size);
+          if (old_key != new_key) {
+            HashIndex::indices[rel.name].remove(old_key, block_idx, i);
+            HashIndex::indices[rel.name].insert(new_key, block_idx, i, disk, bitmap);
+          }
         }
 
         std::copy(new_record.begin(), new_record.end(), block.begin() + pos);
@@ -1950,16 +2158,10 @@ void SGBD::modifyFromShell_var(const std::string &relation_name,
   std::cout << "Registro no encontrado con valor '" << value << "' en campo '"
             << field_name << "'." << std::endl;
 }
-void SGBD::modifyFromShell(const std::string &relation_name,
-                           const std::string &field_name,
-                           const std::string &value,
-                           const std::vector<std::string> &new_values) {
-  if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Relación no encontrada: " << relation_name << std::endl;
-    return;
-  }
 
-  const Relation &rel = catalog.getRelation(relation_name);
+void SGBD::modifyFromShell(const std::string &relation_name, const std::string &field_name, const std::string &value, const std::vector<std::string> &new_values)
+{
+  Relation &rel = catalog.getRelation(relation_name);
 
   if (rel.is_fixed) {
     modifyFromShell_fix(relation_name, field_name, value, new_values);

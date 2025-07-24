@@ -60,6 +60,11 @@ void Catalog::addRelation(const Relation &relation) {
   if (relation.blocks.empty())
     std::cout << "ninguno";
   std::cout << "\n";
+  // Mostrar información de índices si existen
+  if (relation.is_fixed) {
+    std::cout << "Bloque cabecera índice hash: " << relation.hash_index_block << "\n";
+    std::cout << "Bloque cabecera índice B+Tree: " << relation.btree_index_block << "\n";
+  }
 }
 
 void Catalog::load() {
@@ -78,14 +83,16 @@ void Catalog::load() {
 
     header >> rel.name >> mode >> num_fields;
 
-    if (rel.name.empty() || (mode != "fix" && mode != "var") || num_fields <= 0) {
+    if (rel.name.empty() || (mode != "fix" && mode != "var") ||
+        num_fields <= 0) {
       continue;
     }
 
     rel.is_fixed = (mode == "fix");
 
     for (int i = 0; i < num_fields; ++i) {
-      if (!std::getline(iss, line)) break;
+      if (!std::getline(iss, line))
+        break;
       std::istringstream field_line(line);
       Field f;
       field_line >> f.name >> f.type;
@@ -96,12 +103,28 @@ void Catalog::load() {
       rel.fields.push_back(f);
     }
 
+    // Leer bloques de datos
     if (std::getline(iss, line)) {
       std::istringstream block_line(line);
       int block;
       while (block_line >> block) {
         rel.blocks.push_back(block);
       }
+    }
+
+    // Leer bloques de cabecera de índices si es relación fija
+    if (rel.is_fixed && std::getline(iss, line)) {
+      std::istringstream idx_line(line);
+      idx_line >> rel.hash_index_block;
+      if (std::getline(iss, line)) {
+        std::istringstream btree_line(line);
+        btree_line >> rel.btree_index_block;
+      } else {
+        rel.btree_index_block = -1;
+      }
+    } else {
+      rel.hash_index_block = -1;
+      rel.btree_index_block = -1;
     }
 
     relations[rel.name] = rel;
@@ -121,12 +144,17 @@ void Catalog::save() const {
         oss << " " << f.size;
       oss << "\n";
     }
-    for (int i = 0; i < (int)rel.blocks.size(); ++i) {
+    for (size_t i = 0; i < rel.blocks.size(); ++i) {
       oss << rel.blocks[i];
-      if (i + 1 < (int)rel.blocks.size())
+      if (i + 1 < rel.blocks.size())
         oss << " ";
     }
     oss << "\n";
+    // Siempre escribe ambos campos, aunque sean -1
+    if (rel.is_fixed) {
+      oss << rel.hash_index_block << "\n";
+      oss << rel.btree_index_block << "\n";
+    }
   }
 
   std::string content = oss.str();
@@ -157,7 +185,13 @@ void Catalog::print() const {
       if (i + 1 < rel.blocks.size())
         std::cout << ", ";
     }
-    std::cout << std::endl;
+    if (rel.blocks.empty())
+      std::cout << "ninguno";
+    std::cout << "\n";
+    if (rel.is_fixed) {
+      std::cout << "Bloque cabecera índice hash: " << rel.hash_index_block << "\n";
+      std::cout << "Bloque cabecera índice B+Tree: " << rel.btree_index_block << "\n";
+    }
     std::cout << std::endl;
   }
   std::cout << std::endl;

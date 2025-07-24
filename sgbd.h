@@ -4,6 +4,7 @@
 #include "buffermanager.h"
 #include "catalog.h"
 #include "disk.h"
+#include "hash_index.h"
 #include <iostream>
 #include <memory>
 
@@ -29,7 +30,7 @@ public:
   void initializeBlockHeader_fix(int block_idx, int record_size);
   void initializeBlockHeader_var(int block_idx);
 
-  bool insertRecord_fix(int block_idx, const std::vector<char> &record);
+  int insertRecord_fix(int block_idx, const std::vector<char> &record);
   bool insertRecord_var(int block_idx, const std::vector<char> &record);
 
   bool insert(const std::string &relation_name,

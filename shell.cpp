@@ -1,3 +1,4 @@
+#include "hash_index.h"
 #include "shell.h"
 #include <cstdio>
 #include <string>
@@ -46,6 +47,7 @@ void Shell::run() {
   sgbd.catalog.save();
   sgbd.bitmap.save();
   sgbd.bufferManager->flushAll();
+  HashIndex::saveAllToDisk(sgbd.disk);
   std::cout << "Saliendo del sistema..." << std::endl;
 }
 
