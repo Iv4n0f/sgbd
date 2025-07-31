@@ -1220,33 +1220,11 @@ void SGBD::insertFromShell_fix(const std::string &relation_name,
     std::string padded = val + std::string(len - val.size(), ' ');
     record.insert(record.end(), padded.begin(), padded.end());
   }
-
-  for (int block_idx : rel.blocks) {
-    if (insertRecord_fix(block_idx, record)) {
-      disk.printBlockPosition(block_idx);
-      return;
-    }
+  if(insert(relation_name, record)) {
+    std::cout << "Registro insertado existosamente\n";
+  } else {
+    std::cout << "Error al insertar el registro\n";
   }
-
-  int new_block = bitmap.getFreeBlock();
-  if (new_block == -1) {
-    std::cerr << "Error: no hay bloques libres." << std::endl;
-    return;
-  }
-
-  bitmap.set(new_block, true);
-  initializeBlockHeader_fix(new_block, calculateRecordSize(rel.fields));
-
-  if (!insertRecord_fix(new_block, record)) {
-    std::cerr << "Error crítico al insertar en nuevo bloque." << std::endl;
-    return;
-  }
-
-  rel.blocks.push_back(new_block);
-  bitmap.save();
-  catalog.save();
-
-  disk.printBlockPosition(new_block);
 }
 
 void SGBD::insertFromShell_var(const std::string &relation_name,

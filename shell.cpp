@@ -143,6 +143,5 @@ bool Shell::handleCommand(const std::string &line) {
   } else {
     std::cout << "Comando no reconocido." << std::endl;
   }
-  sgbd.bufferManager->printStatus();
   return true;
 }
