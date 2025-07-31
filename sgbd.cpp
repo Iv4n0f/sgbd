@@ -1,14 +1,14 @@
 #include "sgbd.h"
 #include "buffermanager.h"
 #include <algorithm>
+#include <bitset>
 #include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <unordered_set>
-#include <bitset>
-#include <set>
 
 static std::string trim(const std::string &s) {
   size_t start = 0;
@@ -56,7 +56,7 @@ SGBD::SGBD(Disk &disk_) : disk(disk_), bitmap(disk_), catalog(disk_) {
   catalog.load();
 
   std::map<std::string, int> relation_to_block;
-  for (const auto& [name, rel] : catalog.getAllRelations()) {
+  for (const auto &[name, rel] : catalog.getAllRelations()) {
     if (rel.is_fixed && rel.hash_index_block != -1) {
       relation_to_block[name] = rel.hash_index_block;
     }
@@ -306,7 +306,8 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
       // Actualizar índice hash
       if (rel.hash_index_block != -1 && !rel.fields.empty()) {
         std::string key(record.begin(), record.begin() + rel.fields[0].size);
-        HashIndex::indices[rel.name].insert(key, last_block, offset, disk, bitmap);
+        HashIndex::indices[rel.name].insert(key, last_block, offset, disk,
+                                            bitmap);
       }
       return true;
     }
@@ -318,7 +319,8 @@ bool SGBD::insert_fix(Relation &rel, const std::vector<char> &record) {
       // Actualizar índice hash
       if (rel.hash_index_block != -1 && !rel.fields.empty()) {
         std::string key(record.begin(), record.begin() + rel.fields[0].size);
-        HashIndex::indices[rel.name].insert(key, block_idx, offset, disk, bitmap);
+        HashIndex::indices[rel.name].insert(key, block_idx, offset, disk,
+                                            bitmap);
       }
       return true;
     }
@@ -785,7 +787,8 @@ bool SGBD::deleteRelation(const std::string &name) {
         HashIndex &idx = it->second;
         // Liberar bloque de cabecera
         bitmap.set(idx.header_block, false);
-        // Liberar bloques de buckets (puede haber repetidos, pero set es idempotente)
+        // Liberar bloques de buckets (puede haber repetidos, pero set es
+        // idempotente)
         for (int block : idx.directory) {
           bitmap.set(block, false);
         }
@@ -934,7 +937,8 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
   if (field_idx == 0 && op == "==" && input_rel.hash_index_block != -1) {
     std::string value_formateado = value;
     if ((int)value_formateado.size() < input_rel.fields[0].size)
-      value_formateado += std::string(input_rel.fields[0].size - value_formateado.size(), ' ');
+      value_formateado +=
+          std::string(input_rel.fields[0].size - value_formateado.size(), ' ');
     else if ((int)value_formateado.size() > input_rel.fields[0].size)
       value_formateado = value_formateado.substr(0, input_rel.fields[0].size);
 
@@ -943,7 +947,8 @@ void SGBD::selectWhere_fix(const std::string &relation_name,
       std::vector<char> &block = bufferManager->getBlock(block_idx);
       bufferManager->pin(block_idx);
       int reg_offset = HEADER_SIZE_FIX + offset * record_size;
-      std::vector<char> reg(block.begin() + reg_offset, block.begin() + reg_offset + record_size);
+      std::vector<char> reg(block.begin() + reg_offset,
+                            block.begin() + reg_offset + record_size);
       insert(output_name, reg);
       bufferManager->unpin(block_idx);
     }
@@ -1220,7 +1225,7 @@ void SGBD::insertFromShell_fix(const std::string &relation_name,
     std::string padded = val + std::string(len - val.size(), ' ');
     record.insert(record.end(), padded.begin(), padded.end());
   }
-  if(insert(relation_name, record)) {
+  if (insert(relation_name, record)) {
     std::cout << "Registro insertado existosamente\n";
   } else {
     std::cout << "Error al insertar el registro\n";
@@ -1526,7 +1531,8 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
   if (field_idx == 0 && op == "==" && rel.hash_index_block != -1) {
     std::string value_formateado = value;
     if ((int)value_formateado.size() < rel.fields[0].size)
-      value_formateado += std::string(rel.fields[0].size - value_formateado.size(), ' ');
+      value_formateado +=
+          std::string(rel.fields[0].size - value_formateado.size(), ' ');
     else if ((int)value_formateado.size() > rel.fields[0].size)
       value_formateado = value_formateado.substr(0, rel.fields[0].size);
 
@@ -1538,10 +1544,12 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
       int reg_offset = HEADER_SIZE_FIX + offset_logico * record_size;
 
       // Eliminar del índice hash
-      HashIndex::indices[rel.name].remove(value_formateado, block_idx, offset_logico);
+      HashIndex::indices[rel.name].remove(value_formateado, block_idx,
+                                          offset_logico);
 
       // Eliminar físicamente el registro (igual que en el ciclo tradicional)
-      int free_list_head = std::stoi(std::string(block.begin(), block.begin() + 4));
+      int free_list_head =
+          std::stoi(std::string(block.begin(), block.begin() + 4));
       std::string next_str = intTo4CharStr(free_list_head);
       std::copy(next_str.begin(), next_str.end(), block.begin() + reg_offset);
 
@@ -1549,10 +1557,12 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
       std::string head_str = intTo4CharStr(free_list_head);
       std::copy(head_str.begin(), head_str.end(), block.begin());
 
-      int active_records = std::stoi(std::string(block.begin() + 12, block.begin() + 16));
+      int active_records =
+          std::stoi(std::string(block.begin() + 12, block.begin() + 16));
       active_records--;
       std::string new_active_str = intTo4CharStr(active_records);
-      std::copy(new_active_str.begin(), new_active_str.end(), block.begin() + 12);
+      std::copy(new_active_str.begin(), new_active_str.end(),
+                block.begin() + 12);
 
       bufferManager->markDirty(block_idx);
       bufferManager->unpin(block_idx);
@@ -1636,7 +1646,8 @@ void SGBD::deleteWhere_fix(const std::string &relation_name,
 
         // Eliminar del índice hash si corresponde
         if (rel.hash_index_block != -1 && !rel.fields.empty()) {
-          std::string key(block.begin() + pos, block.begin() + pos + rel.fields[0].size);
+          std::string key(block.begin() + pos,
+                          block.begin() + pos + rel.fields[0].size);
           HashIndex::indices[rel.name].remove(key, block_idx, i);
         }
 
@@ -1862,8 +1873,7 @@ void SGBD::printBlock(int block_idx) {
 void SGBD::modifyFromShell_fix(const std::string &relation_name,
                                const std::string &field_name,
                                const std::string &value,
-                               const std::vector<std::string> &new_values)
-{
+                               const std::vector<std::string> &new_values) {
   Relation &rel = catalog.getRelation(relation_name);
 
   if ((int)new_values.size() != (int)rel.fields.size()) {
@@ -1891,7 +1901,8 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
   if (field_idx == 0 && rel.hash_index_block != -1) {
     std::string value_formateado = value;
     if ((int)value_formateado.size() < rel.fields[0].size)
-      value_formateado += std::string(rel.fields[0].size - value_formateado.size(), ' ');
+      value_formateado +=
+          std::string(rel.fields[0].size - value_formateado.size(), ' ');
     else if ((int)value_formateado.size() > rel.fields[0].size)
       value_formateado = value_formateado.substr(0, rel.fields[0].size);
 
@@ -1922,16 +1933,19 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
       }
 
       // Actualizar el registro en el bloque
-      std::copy(new_record.begin(), new_record.end(), block.begin() + reg_offset);
+      std::copy(new_record.begin(), new_record.end(),
+                block.begin() + reg_offset);
       bufferManager->markDirty(block_idx);
       bufferManager->unpin(block_idx);
 
       // Actualizar el índice hash si la clave cambió
       std::string old_key = value_formateado;
-      std::string new_key(new_record.begin(), new_record.begin() + rel.fields[0].size);
+      std::string new_key(new_record.begin(),
+                          new_record.begin() + rel.fields[0].size);
       if (old_key != new_key) {
         HashIndex::indices[rel.name].remove(old_key, block_idx, offset_logico);
-        HashIndex::indices[rel.name].insert(new_key, block_idx, offset_logico, disk, bitmap);
+        HashIndex::indices[rel.name].insert(new_key, block_idx, offset_logico,
+                                            disk, bitmap);
       }
 
       found = true;
@@ -1939,8 +1953,8 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
     if (found) {
       std::cout << "Registro modificado exitosamente." << std::endl;
     } else {
-      std::cout << "Registro no encontrado con valor '" << value << "' en campo '"
-                << field_name << "'." << std::endl;
+      std::cout << "Registro no encontrado con valor '" << value
+                << "' en campo '" << field_name << "'." << std::endl;
     }
     return;
   }
@@ -2003,14 +2017,18 @@ void SGBD::modifyFromShell_fix(const std::string &relation_name,
           std::string padded = val + std::string(len - val.size(), ' ');
           new_record.insert(new_record.end(), padded.begin(), padded.end());
         }
-        
-        // Si la relación tiene índice hash y la clave primaria cambia, actualiza el índice
+
+        // Si la relación tiene índice hash y la clave primaria cambia,
+        // actualiza el índice
         if (rel.hash_index_block != -1 && !rel.fields.empty()) {
-          std::string old_key(block.begin() + pos, block.begin() + pos + rel.fields[0].size);
-          std::string new_key(new_record.begin(), new_record.begin() + rel.fields[0].size);
+          std::string old_key(block.begin() + pos,
+                              block.begin() + pos + rel.fields[0].size);
+          std::string new_key(new_record.begin(),
+                              new_record.begin() + rel.fields[0].size);
           if (old_key != new_key) {
             HashIndex::indices[rel.name].remove(old_key, block_idx, i);
-            HashIndex::indices[rel.name].insert(new_key, block_idx, i, disk, bitmap);
+            HashIndex::indices[rel.name].insert(new_key, block_idx, i, disk,
+                                                bitmap);
           }
         }
 
@@ -2142,8 +2160,10 @@ void SGBD::modifyFromShell_var(const std::string &relation_name,
             << field_name << "'." << std::endl;
 }
 
-void SGBD::modifyFromShell(const std::string &relation_name, const std::string &field_name, const std::string &value, const std::vector<std::string> &new_values)
-{
+void SGBD::modifyFromShell(const std::string &relation_name,
+                           const std::string &field_name,
+                           const std::string &value,
+                           const std::vector<std::string> &new_values) {
   Relation &rel = catalog.getRelation(relation_name);
 
   if (rel.is_fixed) {
@@ -2155,53 +2175,62 @@ void SGBD::modifyFromShell(const std::string &relation_name, const std::string &
 
 void SGBD::printHashIndexStatus(const std::string &relation_name) {
   if (!catalog.hasRelation(relation_name)) {
-    std::cout << "Error: La relación '" << relation_name << "' no existe." << std::endl;
+    std::cout << "Error: La relación '" << relation_name << "' no existe."
+              << std::endl;
     return;
   }
 
   const Relation &rel = catalog.getRelation(relation_name);
-  
+
   if (!rel.is_fixed) {
-    std::cout << "Error: La relación '" << relation_name << "' es de longitud variable y no puede tener un índice hash." << std::endl;
+    std::cout << "Error: La relación '" << relation_name
+              << "' es de longitud variable y no puede tener un índice hash."
+              << std::endl;
     return;
   }
 
   if (rel.hash_index_block == -1) {
-    std::cout << "La relación '" << relation_name << "' no tiene un índice hash configurado." << std::endl;
+    std::cout << "La relación '" << relation_name
+              << "' no tiene un índice hash configurado." << std::endl;
     return;
   }
 
   // Verificar que el índice existe en la memoria
   if (HashIndex::indices.find(relation_name) == HashIndex::indices.end()) {
-    std::cout << "Error: El índice hash de '" << relation_name << "' no está cargado en memoria." << std::endl;
+    std::cout << "Error: El índice hash de '" << relation_name
+              << "' no está cargado en memoria." << std::endl;
     return;
   }
 
   const HashIndex &idx = HashIndex::indices[relation_name];
 
-  std::cout << "\n===== ESTADO DEL ÍNDICE HASH DE '" << relation_name << "' =====\n";
+  std::cout << "\n===== ESTADO DEL ÍNDICE HASH DE '" << relation_name
+            << "' =====\n";
   std::cout << "Bloque de cabecera: " << idx.getHeaderBlock() << "\n";
   std::cout << "Profundidad global: " << idx.global_depth << "\n";
   std::cout << "Tamaño de clave: " << idx.key_size << " bytes\n";
-  std::cout << "Capacidad de cada bucket: " << idx.bucket_capacity << " entradas\n";
-  std::cout << "Número de entradas en el directorio: " << idx.directory.size() << "\n\n";
+  std::cout << "Capacidad de cada bucket: " << idx.bucket_capacity
+            << " entradas\n";
+  std::cout << "Número de entradas en el directorio: " << idx.directory.size()
+            << "\n\n";
 
   // Mostrar el directorio
   std::cout << "Directorio:\n";
   std::cout << "-----------\n";
   for (size_t i = 0; i < idx.directory.size(); i++) {
     int bucket_block = idx.directory[i];
-    std::bitset<16> bin_i(i); // Convertir el índice a binario para mostrar los bits de hash
+    std::bitset<16> bin_i(
+        i); // Convertir el índice a binario para mostrar los bits de hash
     std::string bin_str = bin_i.to_string();
     // Mostrar solo los bits relevantes según la profundidad global
     bin_str = bin_str.substr(bin_str.size() - std::min(idx.global_depth, 16));
-    
+
     // Verificar si el bucket está en el mapa de buckets
     bool bucket_found = idx.buckets.find(bucket_block) != idx.buckets.end();
-    
-    std::cout << "Dir[" << std::setw(3) << i << "] (hash " << bin_str << ") -> Bloque " 
-              << std::setw(4) << bucket_block;
-    
+
+    std::cout << "Dir[" << std::setw(3) << i << "] (hash " << bin_str
+              << ") -> Bloque " << std::setw(4) << bucket_block;
+
     // Si no encontramos el bucket, mostramos un mensaje
     if (!bucket_found) {
       std::cout << " (no cargado en memoria)";
@@ -2213,32 +2242,34 @@ void SGBD::printHashIndexStatus(const std::string &relation_name) {
   // Mostrar cada bucket
   std::cout << "Buckets:\n";
   std::cout << "--------\n";
-  
+
   // Mapa para controlar los buckets que ya se imprimieron
   std::set<int> printed_buckets;
-  
+
   for (size_t i = 0; i < idx.directory.size(); i++) {
     int bucket_block = idx.directory[i];
-    
+
     // Si ya imprimimos este bucket, lo saltamos
     if (printed_buckets.find(bucket_block) != printed_buckets.end()) {
       continue;
     }
-    
+
     printed_buckets.insert(bucket_block);
-    
+
     // Verificar si el bucket está en el mapa de buckets
     if (idx.buckets.find(bucket_block) == idx.buckets.end()) {
-      std::cout << "Bucket en bloque " << bucket_block << ": no cargado en memoria\n";
+      std::cout << "Bucket en bloque " << bucket_block
+                << ": no cargado en memoria\n";
       continue;
     }
-    
-    const auto& bucket = idx.buckets.at(bucket_block);
-    
+
+    const auto &bucket = idx.buckets.at(bucket_block);
+
     std::cout << "Bucket en bloque " << bucket_block << ":\n";
     std::cout << "  Profundidad local: " << bucket.local_depth << "\n";
-    std::cout << "  Entradas: " << bucket.entries.size() << "/" << idx.bucket_capacity << "\n";
-    
+    std::cout << "  Entradas: " << bucket.entries.size() << "/"
+              << idx.bucket_capacity << "\n";
+
     // Contar cuántas entradas del directorio apuntan a este bucket
     int pointers_to_bucket = 0;
     for (int dir_block : idx.directory) {
@@ -2246,20 +2277,15 @@ void SGBD::printHashIndexStatus(const std::string &relation_name) {
         pointers_to_bucket++;
       }
     }
-    
-    std::cout << "  Referencias desde el directorio: " << pointers_to_bucket << "\n";
-    
+
+    std::cout << "  Referencias desde el directorio: " << pointers_to_bucket
+              << "\n";
+
     if (!bucket.entries.empty()) {
       std::cout << "  Contenido:\n";
-      int max_showed_keys = 2;
-      int showed_keys = 0;
-      for (const auto& entry : bucket.entries) {
-        std::cout << "    Clave: '" << entry.key << "' -> Bloque " 
-                 << entry.block_idx << ", Offset " << entry.offset << "\n";
-        if (++showed_keys >= max_showed_keys) {
-          std::cout << "    ...\n";
-          break;
-        }
+      for (const auto &entry : bucket.entries) {
+        std::cout << "    Clave: '" << entry.key << "' -> Bloque "
+                  << entry.block_idx << ", Offset " << entry.offset << "\n";
       }
     }
     std::cout << "\n";
@@ -2267,23 +2293,29 @@ void SGBD::printHashIndexStatus(const std::string &relation_name) {
 
   // Resumen estadístico
   int total_entries = 0;
-  for (const auto& [block, bucket] : idx.buckets) {
+  for (const auto &[block, bucket] : idx.buckets) {
     total_entries += bucket.entries.size();
   }
-  
+
   std::cout << "Resumen estadístico:\n";
   std::cout << "-------------------\n";
   std::cout << "Total de buckets: " << printed_buckets.size() << "\n";
   std::cout << "Total de entradas: " << total_entries << "\n";
-  double avg_entries = printed_buckets.empty() ? 0 : static_cast<double>(total_entries) / printed_buckets.size();
-  std::cout << "Promedio de entradas por bucket: " << std::fixed << std::setprecision(2) << avg_entries << "\n";
-  
+  double avg_entries =
+      printed_buckets.empty()
+          ? 0
+          : static_cast<double>(total_entries) / printed_buckets.size();
+  std::cout << "Promedio de entradas por bucket: " << std::fixed
+            << std::setprecision(2) << avg_entries << "\n";
+
   // Calcular factor de ocupación evitando división por cero
   double occupancy_factor = 0.0;
   if (idx.bucket_capacity > 0 && !printed_buckets.empty()) {
-    occupancy_factor = static_cast<double>(total_entries) / (printed_buckets.size() * idx.bucket_capacity) * 100;
+    occupancy_factor = static_cast<double>(total_entries) /
+                       (printed_buckets.size() * idx.bucket_capacity) * 100;
   }
-  std::cout << "Factor de ocupación: " << std::fixed << std::setprecision(2) << occupancy_factor << "%\n";
+  std::cout << "Factor de ocupación: " << std::fixed << std::setprecision(2)
+            << occupancy_factor << "%\n";
 
   std::cout << "\n=============================================\n";
 }
