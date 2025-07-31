@@ -102,4 +102,5 @@ public:
   void printBlock(int block_idx);
   void printRelationSchema(const std::string &relation_name);
   void printDiskCapacityInfo();
+  void printHashIndexStatus(const std::string &relation_name);
 };

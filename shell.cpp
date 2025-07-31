@@ -138,6 +138,8 @@ bool Shell::handleCommand(const std::string &line) {
     std::string value = tokens[3];
     std::vector<std::string> new_values(tokens.begin() + 4, tokens.end());
     sgbd.modifyFromShell(relation_name, field_name, value, new_values);
+  } else if (cmd == "hash_info" && tokens.size() == 2) {
+    sgbd.printHashIndexStatus(tokens[1]);
   } else {
     std::cout << "Comando no reconocido." << std::endl;
   }

@@ -7,6 +7,8 @@
 #include <memory>
 #include <sstream>
 #include <unordered_set>
+#include <bitset>
+#include <set>
 
 static std::string trim(const std::string &s) {
   size_t start = 0;
@@ -1757,6 +1759,7 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
           continue;
         }
         match = compareValues(op, field_num, value_num);
+
       } else if (field_type == "float") {
         float field_num, value_num;
         if (!stringToFloat(field_val, field_num) ||
@@ -1764,8 +1767,10 @@ void SGBD::deleteWhere_var(const std::string &relation_name,
           continue;
         }
         match = compareValues(op, field_num, value_num);
+
       } else if (field_type == "string") {
         match = compareValues(op, field_val, value);
+
       } else {
         std::cout << "Tipo de campo no soportado: " << field_type << std::endl;
         continue;
@@ -2168,4 +2173,139 @@ void SGBD::modifyFromShell(const std::string &relation_name, const std::string &
   } else {
     modifyFromShell_var(relation_name, field_name, value, new_values);
   }
+}
+
+void SGBD::printHashIndexStatus(const std::string &relation_name) {
+  if (!catalog.hasRelation(relation_name)) {
+    std::cout << "Error: La relación '" << relation_name << "' no existe." << std::endl;
+    return;
+  }
+
+  const Relation &rel = catalog.getRelation(relation_name);
+  
+  if (!rel.is_fixed) {
+    std::cout << "Error: La relación '" << relation_name << "' es de longitud variable y no puede tener un índice hash." << std::endl;
+    return;
+  }
+
+  if (rel.hash_index_block == -1) {
+    std::cout << "La relación '" << relation_name << "' no tiene un índice hash configurado." << std::endl;
+    return;
+  }
+
+  // Verificar que el índice existe en la memoria
+  if (HashIndex::indices.find(relation_name) == HashIndex::indices.end()) {
+    std::cout << "Error: El índice hash de '" << relation_name << "' no está cargado en memoria." << std::endl;
+    return;
+  }
+
+  const HashIndex &idx = HashIndex::indices[relation_name];
+
+  std::cout << "\n===== ESTADO DEL ÍNDICE HASH DE '" << relation_name << "' =====\n";
+  std::cout << "Bloque de cabecera: " << idx.getHeaderBlock() << "\n";
+  std::cout << "Profundidad global: " << idx.global_depth << "\n";
+  std::cout << "Tamaño de clave: " << idx.key_size << " bytes\n";
+  std::cout << "Capacidad de cada bucket: " << idx.bucket_capacity << " entradas\n";
+  std::cout << "Número de entradas en el directorio: " << idx.directory.size() << "\n\n";
+
+  // Mostrar el directorio
+  std::cout << "Directorio:\n";
+  std::cout << "-----------\n";
+  for (size_t i = 0; i < idx.directory.size(); i++) {
+    int bucket_block = idx.directory[i];
+    std::bitset<16> bin_i(i); // Convertir el índice a binario para mostrar los bits de hash
+    std::string bin_str = bin_i.to_string();
+    // Mostrar solo los bits relevantes según la profundidad global
+    bin_str = bin_str.substr(bin_str.size() - std::min(idx.global_depth, 16));
+    
+    // Verificar si el bucket está en el mapa de buckets
+    bool bucket_found = idx.buckets.find(bucket_block) != idx.buckets.end();
+    
+    std::cout << "Dir[" << std::setw(3) << i << "] (hash " << bin_str << ") -> Bloque " 
+              << std::setw(4) << bucket_block;
+    
+    // Si no encontramos el bucket, mostramos un mensaje
+    if (!bucket_found) {
+      std::cout << " (no cargado en memoria)";
+    }
+    std::cout << "\n";
+  }
+  std::cout << "\n";
+
+  // Mostrar cada bucket
+  std::cout << "Buckets:\n";
+  std::cout << "--------\n";
+  
+  // Mapa para controlar los buckets que ya se imprimieron
+  std::set<int> printed_buckets;
+  
+  for (size_t i = 0; i < idx.directory.size(); i++) {
+    int bucket_block = idx.directory[i];
+    
+    // Si ya imprimimos este bucket, lo saltamos
+    if (printed_buckets.find(bucket_block) != printed_buckets.end()) {
+      continue;
+    }
+    
+    printed_buckets.insert(bucket_block);
+    
+    // Verificar si el bucket está en el mapa de buckets
+    if (idx.buckets.find(bucket_block) == idx.buckets.end()) {
+      std::cout << "Bucket en bloque " << bucket_block << ": no cargado en memoria\n";
+      continue;
+    }
+    
+    const auto& bucket = idx.buckets.at(bucket_block);
+    
+    std::cout << "Bucket en bloque " << bucket_block << ":\n";
+    std::cout << "  Profundidad local: " << bucket.local_depth << "\n";
+    std::cout << "  Entradas: " << bucket.entries.size() << "/" << idx.bucket_capacity << "\n";
+    
+    // Contar cuántas entradas del directorio apuntan a este bucket
+    int pointers_to_bucket = 0;
+    for (int dir_block : idx.directory) {
+      if (dir_block == bucket_block) {
+        pointers_to_bucket++;
+      }
+    }
+    
+    std::cout << "  Referencias desde el directorio: " << pointers_to_bucket << "\n";
+    
+    if (!bucket.entries.empty()) {
+      std::cout << "  Contenido:\n";
+      int max_showed_keys = 2;
+      int showed_keys = 0;
+      for (const auto& entry : bucket.entries) {
+        std::cout << "    Clave: '" << entry.key << "' -> Bloque " 
+                 << entry.block_idx << ", Offset " << entry.offset << "\n";
+        if (++showed_keys >= max_showed_keys) {
+          std::cout << "    ...\n";
+          break;
+        }
+      }
+    }
+    std::cout << "\n";
+  }
+
+  // Resumen estadístico
+  int total_entries = 0;
+  for (const auto& [block, bucket] : idx.buckets) {
+    total_entries += bucket.entries.size();
+  }
+  
+  std::cout << "Resumen estadístico:\n";
+  std::cout << "-------------------\n";
+  std::cout << "Total de buckets: " << printed_buckets.size() << "\n";
+  std::cout << "Total de entradas: " << total_entries << "\n";
+  double avg_entries = printed_buckets.empty() ? 0 : static_cast<double>(total_entries) / printed_buckets.size();
+  std::cout << "Promedio de entradas por bucket: " << std::fixed << std::setprecision(2) << avg_entries << "\n";
+  
+  // Calcular factor de ocupación evitando división por cero
+  double occupancy_factor = 0.0;
+  if (idx.bucket_capacity > 0 && !printed_buckets.empty()) {
+    occupancy_factor = static_cast<double>(total_entries) / (printed_buckets.size() * idx.bucket_capacity) * 100;
+  }
+  std::cout << "Factor de ocupación: " << std::fixed << std::setprecision(2) << occupancy_factor << "%\n";
+
+  std::cout << "\n=============================================\n";
 }
